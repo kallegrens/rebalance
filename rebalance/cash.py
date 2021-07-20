@@ -66,3 +66,9 @@ class Cash:
         """
 
         return Cash.currency_rates.get_rate(self.currency, currency.upper())
+
+    def __str__(self):
+        """
+        Format a string.
+        """
+        return f"{self._currency:4}   {1:3d}  {self._amount:8.2f}"

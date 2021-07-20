@@ -1,5 +1,5 @@
-from rebalance import Price
 
+from .price import Price
 import yfinance as yf
 
 
@@ -46,14 +46,14 @@ class Asset:
 
     @property
     def price(self):
-        """ 
-        (float): Price of the asset (in asset's own currency). 
+        """
+        (float): Price of the asset (in asset's own currency).
         """
         return self._price.price
 
     def price_in(self, currency):
-        """ 
-        Price of the asset in specified currency. 
+        """
+        Price of the asset in specified currency.
 
         Args:
             currency (str): Currency in which to obtain price of asset.
@@ -62,8 +62,8 @@ class Asset:
 
     @property
     def currency(self):
-        """ 
-        (str): Currency of the asset. 
+        """
+        (str): Currency of the asset.
         """
         return self._price.currency
 
@@ -76,7 +76,7 @@ class Asset:
 
     def market_value(self):
         """
-        Computes the market value of the asset. 
+        Computes the market value of the asset.
 
         Returns:
             float: Market value of the asset (in asset's own currency).
@@ -85,7 +85,7 @@ class Asset:
 
     def market_value_in(self, currency):
         """
-        Computes the market value of the asset in specified currency. 
+        Computes the market value of the asset in specified currency.
 
         Args:
             currency (str): Currency in which to obtain market value.
@@ -109,7 +109,7 @@ class Asset:
         self._quantity += quantity
         if currency is None:
             return self._price.price * quantity
-        
+
         return self._price.price_in(currency) * quantity
 
     def cost_of(self, units, currency=None):
@@ -125,7 +125,7 @@ class Asset:
         """
         if currency is None:
             return self.price * units
-      
+
         return self.price_in(currency) * units
 
     @property
@@ -133,5 +133,6 @@ class Asset:
         return 0.
 
     def __str__(self):
-        return yf.Ticker(
-            self._ticker).info['shortName'] + "(" + self._ticker + ")"
+        # return yf.Ticker(
+        #     self._ticker).info['shortName'] + " (" + self._ticker + ")"
+        return f"{self._ticker:4s}  {self._quantity:4d} {self.market_value():8.2f}"

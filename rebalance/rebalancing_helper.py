@@ -4,6 +4,7 @@ import math
 import numpy as np
 from scipy.optimize import minimize
 
+
 def rebalance(portfolio, target_allocation):
     """
     Rebalances the portfolio using the specified target allocation, the portfolio's current allocation,
@@ -32,10 +33,10 @@ def rebalance(portfolio, target_allocation):
 
     # Convert all cash to one currency
     balanced_portfolio._combine_cash()
-    
+
     # Solve optimization problem
     to_buy_vals = rebalance_optimizer(balanced_portfolio, target_allocation)
-    
+
     # See how many units of each asset you need to buy based on optimization solution
     # and total cost/currency
     cmn_curr = portfolio._common_currency
@@ -79,20 +80,20 @@ def rebalance(portfolio, target_allocation):
         cost[ticker] = balanced_portfolio.buy_asset(
             ticker, new_units[ticker])
 
-
     return balanced_portfolio, new_units, prices, cost, exchange_history
 
 
 def rebalance_optimizer(portfolio, target_alloc):
     """
-    Handles the optimization algorithm for the rebalancing procedure
+    Handles the optimization algorithm for the rebalancing procedure.
 
     Args:
         portfolio (:class:`.Portfolio`): Object of portfolio to rebalance.
         target_alloc (np.ndarray): Target allocation of Portfolio's assets (in %).
 
     Returns:
-        (np.ndarray): Optimizer's solution, which is the total market value of each asset to purchase.
+        (np.ndarray): Optimizer's solution, which is the total market value of each
+            asset to purchase.
     """
 
     cmn_curr = portfolio._common_currency
@@ -117,7 +118,7 @@ def rebalance_optimizer(portfolio, target_alloc):
     solution = minimize(rebalance_objective,
                         new_asset_values0,
                         args=(current_asset_values,
-                              target_alloc / 100., 
+                              target_alloc / 100.,
                               total_cash),
                         method='SLSQP',
                         bounds=bounds,
@@ -125,18 +126,22 @@ def rebalance_optimizer(portfolio, target_alloc):
 
     return solution.x
 
-def rebalance_objective(new_asset_values, current_asset_values, 
-                         target_allocation, total_cash):
+
+def rebalance_objective(new_asset_values, current_asset_values,
+                        target_allocation, total_cash):
     """
     Objective function used in optimization problem of portfolio rebalancing.
 
-    Args:
+    Args
+    ----
         new_asset_values (np.ndarray): Market value of assets to buy.
-        current_asset_vales (np.ndarray): Portfolio's current Market values of assets (in same currency as ``new_asset_values``).
+        current_asset_vales (np.ndarray): Portfolio's current Market values of assets
+            (in same currency as ``new_asset_values``).
         target_allocation (np.ndarray): Target asset allocation (in decimal).
         total_cash (float): Total cash available for investing.
 
-    Returns:
+    Returns
+    -------
         float: Value of objective function.
     """
 

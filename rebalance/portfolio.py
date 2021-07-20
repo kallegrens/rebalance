@@ -4,11 +4,11 @@ from typing import Sequence
 
 import numpy as np
 
-from rebalance import Asset
-from rebalance import Cash
-from rebalance import Price
+from .asset import Asset
+from .cash import Cash
+from .price import Price
 
-from rebalance.portfolio import rebalancing_helper
+from . import rebalancing_helper
 
 
 class TargetException(Exception):
@@ -36,7 +36,7 @@ class Portfolio:
         self._assets = {}
         self._cash = {}
         self._is_selling_allowed = False
-        self._common_currency = "CAD"
+        self._common_currency = "USD"
 
     @property
     def cash(self):
@@ -53,7 +53,7 @@ class Portfolio:
     def add_cash(self, amount, currency):
         """
         Adds cash to portfolio.
-        
+
         Args:
             amount (float) : Amount of cash
             currency (str) : Currency of cash
@@ -81,10 +81,10 @@ class Portfolio:
 
     @property
     def assets(self):
-        """ 
+        """
         Dict[str, Asset]: Dictionary of assets in portfolio. The keys of the dictionary are the tickers of the assets.
 
-        
+
         No setter allowed.
         """
         return self._assets
@@ -129,7 +129,7 @@ class Portfolio:
         Computes the portfolio's asset allocation.
 
 
-        Returns: 
+        Returns:
             Dict[str, Asset]: Asset allocation of the portfolio (in %). The keys of the dictionary are the tickers of the assets.
         """
 
@@ -233,19 +233,19 @@ class Portfolio:
 
         from_currency = from_currency.upper()
         to_currency = to_currency.upper()
-        
+
         # add cash instances of both currencies to portfolio if non-existent
         self.add_cash(0.0, from_currency)
         self.add_cash(0.0, to_currency)
-        
+
         if to_amount is None and from_amount is None:
             raise Exception(
                 "Argument `to_amount` or `from_amount` must be specified.")
-        
+
         if to_amount is not None and from_amount is not None:
             raise Exception(
                 "Please specify only `to_amount` or `from_amount`, not both.")
-        
+
         if to_amount is not None:
             from_amount = self.cash[to_currency].exchange_rate(
                 from_currency) * to_amount
@@ -263,7 +263,7 @@ class Portfolio:
 
         Args:
             target_allocation (Dict[str, float]): Target asset allocation of the portfolio (in %). The keys of the dictionary are the tickers of the assets.
-            verbose (bool, optional): Verbosity flag. Default is False. 
+            verbose (bool, optional): Verbosity flag. Default is False.
 
         Returns:
             (tuple): tuple containing:
@@ -310,18 +310,25 @@ class Portfolio:
             print("")
             # Print shares to buy, cost, new allocation, old allocation target, and target allocation
             print(
-                " Ticker      Ask     Quantity      Amount    Currency     Old allocation   New allocation     Target allocation"
+                " Ticker      Ask     Quantity        Amount    Currency     Old allocation   New allocation     Target allocation"
             )
             print(
-                "                      to buy         ($)                      (%)              (%)                 (%)"
+                "                      to buy           ($)                      (%)              (%)                 (%)"
             )
             print(
                 "---------------------------------------------------------------------------------------------------------------"
             )
             for ticker in balanced_portfolio.assets:
-                print("%8s  %7.2f   %6.d        %8.2f     %4s          %5.2f            %5.2f               %5.2f" % \
-                (ticker, prices[ticker][0], new_units[ticker], cost[ticker], prices[ticker][1], \
-                 old_alloc[ticker], new_alloc[ticker], target_allocation[ticker]))
+                # print("%8s  %7.2f   %6.d        %10.2f     %4s          %5.2f            %5.2f               %5.2f" %
+                #       (ticker, prices[ticker][0], new_units[ticker], cost[ticker], prices[ticker][1],
+                #        old_alloc[ticker], new_alloc[ticker], target_allocation[ticker]))
+
+                print(
+                    f"{ticker:>8s}  {prices[ticker][0]:7.2f}   {new_units[ticker]:6,d}"
+                    f"        {cost[ticker]:10,.2f}     {prices[ticker][1]:>4s}"
+                    f"          {old_alloc[ticker]:5,.2f}            {new_alloc[ticker]:5.2f}"
+                    f"               {target_allocation[ticker]:5.2f}"
+                )
 
             print("")
             print(
@@ -360,12 +367,11 @@ class Portfolio:
 
     def _sell_everything(self):
         """
-            Sells all assets in the portfolio and converts them to cash. 
+            Sells all assets in the portfolio and converts them to cash.
         """
 
         for ticker, asset in self._assets.items():
             self.buy_asset(ticker, - asset.quantity)
-
 
     def _combine_cash(self, currency=None):
         """
@@ -382,9 +388,8 @@ class Portfolio:
         for cash in cash_vals:
             if cash.currency == currency:
                 continue
-            
-            self.exchange_currency(to_currency=currency, from_currency=cash.currency, from_amount=cash.amount)
 
+            self.exchange_currency(to_currency=currency, from_currency=cash.currency, from_amount=cash.amount)
 
     def _smart_exchange(self, currency_amount):
         """
@@ -392,7 +397,7 @@ class Portfolio:
 
         Args:
             currency_amount (Dict[str, float]): Amount needed per currency. The keys of the dictionary are the currency.
-    
+
         Returns:
             List[tuple]: tuple containing:
                     *  from_amount (float): Amount exchanged from currency indicated by `from_currency`
@@ -403,7 +408,7 @@ class Portfolio:
         """
 
         # first, compute amount we have to convert to and amount we have for conversion
-        
+
 
         to_conv = {}
         from_conv = copy.deepcopy(self.cash)
@@ -485,3 +490,24 @@ class Portfolio:
                         from_cash.amount = 0.00
 
         return exchange_history
+
+    def __str__(self):
+        """
+        Return formatted string of entire portfolio.
+        """
+        result = [""]
+
+        result.append('Assets')
+        for asset in self.assets.values():
+            result.append(str(asset))
+
+        result.append('')
+        result.append('Cash')
+        for cash in self.cash.values():
+            result.append(str(cash))
+
+        result.append('')
+        result.append('Value')
+        result.append(f"{self._common_currency} 1 {self.value(self._common_currency):.2f}")
+
+        return '\n'.join(result)
