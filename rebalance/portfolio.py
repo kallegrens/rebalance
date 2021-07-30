@@ -269,7 +269,7 @@ class Portfolio:
             (tuple): tuple containing:
                 * new_units (Dict[str, int]): Units of each asset to buy. The keys of the dictionary are the tickers of the assets.
                 * prices (Dict[str, [float, str]]): The keys of the dictionary are the tickers of the assets. Each value of the dictionary is a 2-entry list. The first entry is the price of the asset during the rebalancing computation. The second entry is the currency of the asset.
-                * exchange_rates (Dict[str, float]): The keys of the dictionary are currencies. Each value is the exchange rate to CAD during the rebalancing computation.
+                * exchange_rates (Dict[str, float]): The keys of the dictionary are currencies. Each value is the exchange rate to USD during the rebalancing computation.
                 * max_diff (float): Largest difference between target allocation and optimized asset allocation.
         """
 
@@ -310,7 +310,7 @@ class Portfolio:
             print("")
             # Print shares to buy, cost, new allocation, old allocation target, and target allocation
             print(
-                " Ticker      Ask     Quantity        Amount    Currency     Old allocation   New allocation     Target allocation"
+                " Ticker     Price    Quantity        Amount    Currency     Old allocation   New allocation     Target allocation"
             )
             print(
                 "                      to buy           ($)                      (%)              (%)                 (%)"

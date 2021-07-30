@@ -11,13 +11,13 @@ class Cash:
     """
     currency_rates = CurrencyRates()
 
-    def __init__(self, amount, currency="CAD"):
+    def __init__(self, amount, currency="USD"):
         """
         Initialization.
 
         Args:
             amount (float): Amount of cash.
-            currency (str, optional): Currency of cash. Defaults to "CAD".
+            currency (str, optional): Currency of cash. Defaults to "USD".
         """
 
         self._amount = amount

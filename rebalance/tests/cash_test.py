@@ -1,4 +1,5 @@
 import unittest
+import requests_cache
 
 from rebalance import Cash
 from rebalance import Price
@@ -47,4 +48,5 @@ class TestPrice(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    requests_cache.install_cache("asset_test")
     unittest.main()

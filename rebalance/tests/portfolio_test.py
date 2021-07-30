@@ -1,6 +1,6 @@
 import unittest
 import math
-
+import requests_cache
 import numpy as np
 
 from rebalance import Portfolio
@@ -268,4 +268,5 @@ class TestPortfolio(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    requests_cache.install_cache("asset_test")
     unittest.main()

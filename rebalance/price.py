@@ -7,13 +7,13 @@ class Price:
     """
     An instance of :class:`Price` holds a price and a currency.
     """
-    def __init__(self, price, currency="CAD"):
+    def __init__(self, price, currency="USD"):
         """
         Initialization.
 
         Args:
             price (float): Price.
-            currency (str, optional): Currency of price. Defaults to "CAD".
+            currency (str, optional): Currency of price. Defaults to "USD".
         """
         self._price = price
         self._currency = currency.upper()
