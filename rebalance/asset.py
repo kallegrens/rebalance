@@ -24,18 +24,10 @@ class Asset:
 
         self._ticker = ticker
         self._quantity = quantity
-        ticker_info = yf.Ticker(self._ticker).info
+        ticker_info = yf.Ticker(self._ticker).fast_info
 
         # we fetch the price
-        if ticker_info['quoteType'] == 'ETF':
-            self._price = Price(ticker_info['navPrice'], ticker_info["currency"])
-        elif ticker_info['quoteType'] == 'EQUITY':
-            self._price = Price(ticker_info['currentPrice'], ticker_info["currency"])
-        elif ticker_info['quoteType'] == 'MUTUALFUND':
-            self._price = Price(ticker_info['previousClose'], ticker_info["currency"])
-        else:
-            print(f'ERROR: unknown quote type {ticker_info["quoteType"]} !!!')
-            print('Fix Assets.py')
+        self._price = Price(ticker_info["lastPrice"], ticker_info["currency"])
 
     @property
     def quantity(self):
