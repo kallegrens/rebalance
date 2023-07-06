@@ -19,14 +19,17 @@ class TestAsset(unittest.TestCase):
         quantity = 2
         asset = Asset(ticker, quantity)
 
-        ticker_info = yf.Ticker(ticker).info
+        ticker_info = yf.Ticker(ticker).fast_info
 
+        # import sys
+        # print(ticker_info["lastPrice"], ticker_info["currency"], file=sys.stderr)
+        # print(asset, file=sys.stderr)
         self.assertEqual(asset.quantity, quantity)
-        self.assertEqual(asset.price, yf.Ticker(ticker).info["regularMarketPrice"])
+        self.assertEqual(asset.price, yf.Ticker(ticker).fast_info["lastPrice"])
         self.assertEqual(asset.ticker, ticker)
-        self.assertEqual(asset.currency, yf.Ticker(ticker).info["currency"])
+        self.assertEqual(asset.currency, yf.Ticker(ticker).fast_info["currency"])
         self.assertEqual(asset.market_value(),
-                         yf.Ticker(ticker).info["regularMarketPrice"] * quantity)
+                         yf.Ticker(ticker).fast_info["lastPrice"] * quantity)
 
     def test_interface2(self):
         """
@@ -42,8 +45,8 @@ class TestAsset(unittest.TestCase):
 
         self.assertEqual(asset.quantity, quantity)
 
-        ticker_info = yf.Ticker(ticker).info
-        price = Price(ticker_info["regularMarketPrice"], currency=ticker_info["currency"])
+        ticker_info = yf.Ticker(ticker).fast_info
+        price = Price(ticker_info["lastPrice"], currency=ticker_info["currency"])
 
         self.assertEqual(asset.price_in("CAD"), price.price_in("CAD"))
         self.assertEqual(asset.market_value(), price.price * quantity)
@@ -61,8 +64,8 @@ class TestAsset(unittest.TestCase):
         quantity = 10
         asset = Asset(ticker, quantity)
 
-        ticker_info = yf.Ticker(ticker).info
-        price = Price(ticker_info["regularMarketPrice"], currency=ticker_info["currency"])
+        ticker_info = yf.Ticker(ticker).fast_info
+        price = Price(ticker_info["lastPrice"], currency=ticker_info["currency"])
 
         to_buy = 4
         self.assertEqual(asset.cost_of(to_buy), price.price * to_buy)

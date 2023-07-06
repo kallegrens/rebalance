@@ -50,8 +50,8 @@ class TestPortfolio(unittest.TestCase):
 
         ticker = "VCN.TO"
         quantity = 2
-        ticker_info = yf.Ticker(ticker).info
-        price = ticker_info["regularMarketPrice"]
+        ticker_info = yf.Ticker(ticker).fast_info
+        price = ticker_info["lastPrice"]
         asset = Asset(ticker=ticker, quantity=quantity)
 
         p.add_asset(asset)
@@ -86,7 +86,7 @@ class TestPortfolio(unittest.TestCase):
             self.assertEqual(tickers[i], p.assets[tickers[i]].ticker)
             self.assertEqual(quantities[i], p.assets[tickers[i]].quantity)
             self.assertEqual(
-                yf.Ticker(tickers[i]).info["regularMarketPrice"], p.assets[tickers[i]].price)
+                yf.Ticker(tickers[i]).fast_info["lastPrice"], p.assets[tickers[i]].price)
 
     def test_portfolio_value(self):
         """
@@ -134,8 +134,8 @@ class TestPortfolio(unittest.TestCase):
         rates = CurrencyRates()
 
         prices = [
-            yf.Ticker(ticker).info["regularMarketPrice"] *
-            rates.get_rate(yf.Ticker(ticker).info["currency"], "CAD")
+            yf.Ticker(ticker).fast_info["lastPrice"] *
+            rates.get_rate(yf.Ticker(ticker).fast_info["currency"], "CAD")
             for ticker in tickers
         ]
         total = np.sum(np.asarray(quantities) * np.asarray(prices))
