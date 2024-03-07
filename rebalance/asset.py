@@ -10,13 +10,15 @@ class Asset:
     Holds the name, number of units, and the :class:`.Price` of the asset.
 
     """
-    def __init__(self, ticker, quantity=0):
+    def __init__(self, ticker, session, quantity=0):
         """
         Initialization.
 
-        Args:
-            ticker (str): Ticker of the asset.
-            quantity (int, optional): Number of units of the asset. Default is zero.
+        Args
+        ----
+        - ticker (str): Ticker of the asset.
+        - session () web session for caching.  May be None.
+        - quantity (int, optional): Number of units of the asset. Default is zero.
         """
 
         assert ticker is not None, "ticker symbol is a mandatory argument."
@@ -24,7 +26,7 @@ class Asset:
 
         self._ticker = ticker
         self._quantity = quantity
-        ticker_info = yf.Ticker(self._ticker).fast_info
+        ticker_info = yf.Ticker(self._ticker, session=session).fast_info
 
         # we fetch the price
         self._price = Price(ticker_info["lastPrice"], ticker_info["currency"])
