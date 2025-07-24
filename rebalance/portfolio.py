@@ -119,7 +119,7 @@ class Portfolio:
         """
 
         assert len(tickers) == len(quantities), \
-               "`names` and `quantities` must be of the same length."
+            "`names` and `quantities` must be of the same length."
 
         for ticker, quantity in zip(tickers, quantities):
             self._assets[ticker] = Asset(ticker, quantity)
@@ -307,25 +307,34 @@ class Portfolio:
                 np.fromiter(new_alloc.values(), dtype=float)))
 
         if verbose:
-            print("")
-            # Print shares to buy, cost, new allocation, old allocation target, and target allocation
-            print(
-                " Ticker     Price    Quantity        Amount    Currency     Old allocation   New allocation     Target allocation"
-            )
-            print(
-                "                      to buy           ($)                      (%)              (%)                 (%)"
-            )
-            print(
-                "---------------------------------------------------------------------------------------------------------------"
-            )
-            for ticker in balanced_portfolio.assets:
-                # print("%8s  %7.2f   %6.d        %10.2f     %4s          %5.2f            %5.2f               %5.2f" %
-                #       (ticker, prices[ticker][0], new_units[ticker], cost[ticker], prices[ticker][1],
-                #        old_alloc[ticker], new_alloc[ticker], target_allocation[ticker]))
+            # --- Calculate the required width for the ticker column ---
+            # Find the length of the longest ticker string to set the column width dynamically.
+            # We take the max of the header "Ticker" and the actual longest ticker name.
+            ticker_col_width = max(len(t) for t in balanced_portfolio.assets)
+            ticker_col_width = max(ticker_col_width, len("Ticker"))
 
+            # --- Print Headers ---
+            # Use f-strings with the dynamic width to ensure headers align with the data.
+            header1 = (
+                f"{'Ticker':<{ticker_col_width}}     Price    Quantity        Amount    "
+                f"Currency     Old allocation   New allocation     Target allocation"
+            )
+            header2 = (
+                f"{'':<{ticker_col_width}}             to buy/sell    ($,£,€,kr)                    "
+                f"(%)              (%)                 (%)"
+            )
+            
+            print("")
+            print(header1)
+            print(header2)
+            print("-" * len(header1)) # A dynamic separator line
+
+            # --- Print Data Rows ---
+            for ticker in balanced_portfolio.assets:
+                # Use the calculated width and left-align (<) the ticker for clean alignment.
                 print(
-                    f"{ticker:>8s}  {prices[ticker][0]:7.2f}   {new_units[ticker]:6,d}"
-                    f"        {cost[ticker]:10,.2f}     {prices[ticker][1]:>4s}"
+                    f"{ticker:<{ticker_col_width}}   {prices[ticker][0]:7.2f}   {new_units[ticker]:6,d}"
+                    f"        {cost[ticker]:10,.0f}     {prices[ticker][1]:>4s}"
                     f"          {old_alloc[ticker]:5,.2f}            {new_alloc[ticker]:5.2f}"
                     f"               {target_allocation[ticker]:5.2f}"
                 )
@@ -349,16 +358,16 @@ class Portfolio:
 
                 for exchange in exchange_history:
                     (from_amount, from_currency, to_amount, to_currency,
-                     rate) = exchange
-                    print("    %.2f %s to %.2f %s at a rate of %.4f." %
-                          (from_amount, from_currency, to_amount, to_currency,
-                           rate))
+                    rate) = exchange
+                    print("    %.0f %s to %.0f %s at a rate of %.4f." %
+                        (from_amount, from_currency, to_amount, to_currency,
+                        rate))
 
             # Print remaining cash
             print("")
             print("Remaining cash:")
             for cash in balanced_portfolio.cash.values():
-                print("    %.2f %s." % (cash.amount, cash.currency))
+                print("    %.0f %s." % (cash.amount, cash.currency))
 
         # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)
