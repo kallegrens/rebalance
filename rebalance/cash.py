@@ -1,15 +1,14 @@
-from forex_python.converter import CurrencyRates
-
+from currency_converter import CurrencyConverter
 
 class Cash:
     """
     An instance of :class:`Cash` holds an amount and a currency.
 
     Attributes
-        currency_rates (forex_python.converter) : Used for currency conversion.
+        currency_rates (currency_converter.CurrencyConverter) : Used for currency conversion.
 
     """
-    currency_rates = CurrencyRates()
+    currency_rates = CurrencyConverter()
 
     def __init__(self, amount, currency="USD"):
         """
@@ -65,7 +64,7 @@ class Cash:
             (float): exchange rate.
         """
 
-        return Cash.currency_rates.get_rate(self.currency, currency.upper())
+        return Cash.currency_rates.convert(1, self.currency, currency.upper())
 
     def __str__(self):
         """

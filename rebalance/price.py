@@ -1,12 +1,13 @@
 from . import Cash
 
-from forex_python.converter import CurrencyRates
+from currency_converter import CurrencyConverter
 
 
 class Price:
     """
     An instance of :class:`Price` holds a price and a currency.
     """
+
     def __init__(self, price, currency="USD"):
         """
         Initialization.
@@ -42,7 +43,6 @@ class Price:
         Returns:
             (float): Price in specified currency.
         """
-        currency_exchange = Cash.currency_rates.get_rate(
-            self.currency, currency.upper())
+        currency_exchange = Cash.currency_rates.convert(1, self.currency, currency.upper())
 
         return currency_exchange * self._price
