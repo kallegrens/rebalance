@@ -286,11 +286,11 @@ class Portfolio:
         target_allocation_np = np.fromiter(
             target_allocation_reordered.values(), dtype=float)
 
-        target_total = abs(np.sum(target_allocation_np) - 100.)
+        target_total = np.sum(target_allocation_np)
 
-        if target_total <= 1E-2:
+        if float(target_total) != 100.0:
             raise TargetException(
-                "target allocation must sum up to 100%.",
+                "Target allocation must sum up to 100%.",
                 target_allocation_np,
                 target_total
             )
