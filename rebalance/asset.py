@@ -1,4 +1,3 @@
-
 from .price import Price
 import yfinance as yf
 
@@ -10,15 +9,16 @@ class Asset:
     Holds the name, number of units, and the :class:`.Price` of the asset.
 
     """
-    def __init__(self, ticker, session, quantity=0):
+
+    def __init__(self, ticker, quantity=0, session=None):
         """
         Initialization.
 
         Args
         ----
         - ticker (str): Ticker of the asset.
-        - session () web session for caching.  May be None.
         - quantity (int, optional): Number of units of the asset. Default is zero.
+        - session (optional): Web session for caching. May be None. If None, yfinance will handle session management.
         """
 
         assert ticker is not None, "ticker symbol is a mandatory argument."
@@ -26,14 +26,19 @@ class Asset:
 
         self._ticker = ticker
         self._quantity = quantity
-        ticker_info = yf.Ticker(self._ticker, session=session).fast_info
+
+        # Let yfinance handle session management if no session is provided
+        if session is None:
+            ticker_info = yf.Ticker(self._ticker).fast_info
+        else:
+            ticker_info = yf.Ticker(self._ticker, session=session).fast_info
 
         # we fetch the price
         self._price = Price(ticker_info["lastPrice"], ticker_info["currency"])
 
     @property
     def quantity(self):
-        """ (int): Number of units of the asset. """
+        """(int): Number of units of the asset."""
         return self._quantity
 
     @quantity.setter
@@ -127,7 +132,7 @@ class Asset:
 
     @property
     def mer(self):
-        return 0.
+        return 0.0
 
     def __str__(self):
         # return yf.Ticker(
