@@ -10,7 +10,7 @@ class Asset:
     Holds the name, number of units, and the :class:`.Price` of the asset.
 
     """
-    def __init__(self, ticker, quantity=0, price=None):
+    def __init__(self, ticker, quantity=0):
         """
         Initialization.
 
@@ -24,15 +24,10 @@ class Asset:
 
         self._ticker = ticker
         self._quantity = quantity
+        ticker_info = yf.Ticker(self._ticker).info
 
-
-        if price is None:
-            # we fetch the price
-            ticker_info = yf.Ticker(self._ticker).info
-            self._price = Price(ticker_info["regularMarketPrice"], ticker_info["currency"])
-        else:
-            self._price = Price(price, "USD")
-
+        # we fetch the price
+        self._price = Price(ticker_info["regularMarketPrice"], ticker_info["currency"])
 
     @property
     def quantity(self):
