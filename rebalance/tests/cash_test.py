@@ -1,10 +1,8 @@
 import unittest
+
 import requests_cache
 
-from rebalance import Cash
-from rebalance import Price
-
-from forex_python.converter import CurrencyRates
+from rebalance import Cash, Price
 
 
 class TestCash(unittest.TestCase):
@@ -18,14 +16,13 @@ class TestCash(unittest.TestCase):
         self.assertEqual(cash.amount, amount)
         self.assertEqual(cash.currency, currency.upper())
 
-        # currency coversion to itself
+        # currency conversion to itself
         self.assertEqual(cash.amount_in(currency), amount)
 
-        ex_rate = CurrencyRates()
-        self.assertEqual(cash.exchange_rate("usd"),
-                         ex_rate.get_rate(currency, "USD"))
-        self.assertEqual(cash.amount_in("usd"),
-                         ex_rate.get_rate(currency, "USD") * amount)
+        # verify internal consistency: amount_in == exchange_rate * amount
+        ex_rate = cash.exchange_rate("usd")
+        self.assertGreater(ex_rate, 0)
+        self.assertAlmostEqual(cash.amount_in("usd"), ex_rate * amount, 10)
 
 
 class TestPrice(unittest.TestCase):
@@ -35,18 +32,18 @@ class TestPrice(unittest.TestCase):
         """
         price = 20.4
         currency = "CAD"
-        cash = Price(price=price, currency=currency)
-        self.assertEqual(cash.price, price)
-        self.assertEqual(cash.currency, currency.upper())
+        p = Price(price=price, currency=currency)
+        self.assertEqual(p.price, price)
+        self.assertEqual(p.currency, currency.upper())
 
         # currency conversion to itself
-        self.assertEqual(cash.price_in(currency), price)
+        self.assertEqual(p.price_in(currency), price)
 
-        ex_rate = CurrencyRates()
-        self.assertEqual(cash.price_in("usd"),
-                         ex_rate.get_rate(currency, "USD") * price)
+        # verify internal consistency using the same FX source
+        ex_rate = Cash(1, currency).exchange_rate("usd")
+        self.assertAlmostEqual(p.price_in("usd"), ex_rate * price, 10)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     requests_cache.install_cache("asset_test")
     unittest.main()

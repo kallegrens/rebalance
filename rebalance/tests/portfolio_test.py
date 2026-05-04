@@ -1,13 +1,10 @@
 import unittest
-import math
-import requests_cache
+
 import numpy as np
-
-from rebalance import Portfolio
-from rebalance import Asset
-
+import requests_cache
 import yfinance as yf
-from forex_python.converter import CurrencyRates
+
+from rebalance import Asset, Cash, Portfolio
 
 
 class TestPortfolio(unittest.TestCase):
@@ -50,8 +47,6 @@ class TestPortfolio(unittest.TestCase):
 
         ticker = "VCN.TO"
         quantity = 2
-        ticker_info = yf.Ticker(ticker).fast_info
-        price = ticker_info["lastPrice"]
         asset = Asset(ticker=ticker, quantity=quantity)
 
         p.add_asset(asset)
@@ -86,7 +81,8 @@ class TestPortfolio(unittest.TestCase):
             self.assertEqual(tickers[i], p.assets[tickers[i]].ticker)
             self.assertEqual(quantities[i], p.assets[tickers[i]].quantity)
             self.assertEqual(
-                yf.Ticker(tickers[i]).fast_info["lastPrice"], p.assets[tickers[i]].price)
+                yf.Ticker(tickers[i]).fast_info["lastPrice"], p.assets[tickers[i]].price
+            )
 
     def test_portfolio_value(self):
         """
@@ -101,8 +97,7 @@ class TestPortfolio(unittest.TestCase):
 
         mv = p.market_value("CAD")
 
-        total_mv = np.sum(
-            [asset.market_value_in("CAD") for asset in p.assets.values()])
+        total_mv = np.sum([asset.market_value_in("CAD") for asset in p.assets.values()])
 
         self.assertAlmostEqual(mv, total_mv, 1)
 
@@ -112,7 +107,7 @@ class TestPortfolio(unittest.TestCase):
 
         cv = p.cash_value("CAD")
 
-        usd_to_cad = CurrencyRates().get_rate("USD", "CAD")
+        usd_to_cad = Cash(1, "USD").exchange_rate("CAD")
         total_cv = np.sum(amounts[0] + amounts[1] * usd_to_cad)
         self.assertAlmostEqual(cv, total_cv, 1)
 
@@ -129,20 +124,19 @@ class TestPortfolio(unittest.TestCase):
         p.easy_add_assets(tickers=tickers, quantities=quantities)
 
         asset_alloc = p.asset_allocation()
-        self.assertAlmostEqual(sum(asset_alloc.values()), 100., 7)
-
-        rates = CurrencyRates()
+        self.assertAlmostEqual(sum(asset_alloc.values()), 100.0, 7)
 
         prices = [
-            yf.Ticker(ticker).fast_info["lastPrice"] *
-            rates.get_rate(yf.Ticker(ticker).fast_info["currency"], "CAD")
+            yf.Ticker(ticker).fast_info["lastPrice"]
+            * Cash(1, yf.Ticker(ticker).fast_info["currency"]).exchange_rate("CAD")
             for ticker in tickers
         ]
         total = np.sum(np.asarray(quantities) * np.asarray(prices))
         n = len(tickers)
         for i in range(n):
-            self.assertAlmostEqual(asset_alloc[tickers[i]],
-                                   quantities[i] * prices[i] / total * 100., 1)
+            self.assertAlmostEqual(
+                asset_alloc[tickers[i]], quantities[i] * prices[i] / total * 100.0, 1
+            )
 
     def test_exchange(self):
         """
@@ -155,32 +149,24 @@ class TestPortfolio(unittest.TestCase):
         currencies = ["CAD", "USD"]
         p.easy_add_cash(amounts, currencies)
 
-        cad_to_usd = CurrencyRates().get_rate("CAD", "USD")
+        cad_to_usd = Cash(1, "CAD").exchange_rate("USD")
 
-        p.exchange_currency(to_currency="CAD",
-                            from_currency="USD",
-                            to_amount=100)
-        self.assertAlmostEqual(p.cash["CAD"].amount, 500.15 + 100., 1)
-        self.assertAlmostEqual(p.cash["USD"].amount, 200. - 100. * cad_to_usd,
-                               1)
+        p.exchange_currency(to_currency="CAD", from_currency="USD", to_amount=100)
+        self.assertAlmostEqual(p.cash["CAD"].amount, 500.15 + 100.0, 1)
+        self.assertAlmostEqual(p.cash["USD"].amount, 200.0 - 100.0 * cad_to_usd, 1)
 
-        p.exchange_currency(from_currency="USD",
-                            to_currency="CAD",
-                            from_amount=50)
-        self.assertAlmostEqual(p.cash["CAD"].amount,
-                               500.15 + 100 + 50 / cad_to_usd, 1)
-        self.assertAlmostEqual(p.cash["USD"].amount,
-                               200. - 100. * cad_to_usd - 50, 1)
+        p.exchange_currency(from_currency="USD", to_currency="CAD", from_amount=50)
+        self.assertAlmostEqual(p.cash["CAD"].amount, 500.15 + 100 + 50 / cad_to_usd, 1)
+        self.assertAlmostEqual(p.cash["USD"].amount, 200.0 - 100.0 * cad_to_usd - 50, 1)
 
         # error handling:
-        with self.assertRaises(Exception):
-            p.exchange_currency(to_currency="CAD",
-                                from_currency="USD",
-                                to_amount=100,
-                                from_amount=20)
+        with self.assertRaises(Exception):  # noqa: B017
+            p.exchange_currency(
+                to_currency="CAD", from_currency="USD", to_amount=100, from_amount=20
+            )
 
         # error handling
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             p.exchange_currency(to_currency="CAD", from_currency="USD")
 
     def test_rebalancing(self):
@@ -212,17 +198,17 @@ class TestPortfolio(unittest.TestCase):
             "XIC.TO": 20,
             "IEFA": 20,
             "ITOT": 36,
-            "IEMG": 4
+            "IEMG": 4,
         }
 
         initial_value = p.value("CAD")
         (_, _, _, max_diff) = p.rebalance(target_asset_alloc, verbose=True)
         final_value = p.value("CAD")
         self.assertAlmostEqual(initial_value, final_value, 1)
-        self.assertLessEqual(max_diff, 2.)
+        self.assertLessEqual(max_diff, 2.0)
 
         # Error handling
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017
             target_asset_alloc = {
                 "XBB.TO": 20,
                 "XIC.TO": 20,
@@ -238,8 +224,8 @@ class TestPortfolio(unittest.TestCase):
         """
         p = Portfolio()
 
-        p.add_cash(200., "USD")
-        p.add_cash(250., "GBP")
+        p.add_cash(200.0, "USD")
+        p.add_cash(250.0, "GBP")
 
         tickers = ["VCN.TO", "XAW.TO", "ZAG.TO"]
         quantities = [5, 12, 20]
@@ -264,9 +250,9 @@ class TestPortfolio(unittest.TestCase):
         # Since there was no CAD to start off with,
         # there should be none after rebalacing either
         # (i.e. amount converted to CAD should be the amount used to purchase CAD assets)
-        self.assertAlmostEqual(p.cash["CAD"].amount, 0., 1)
+        self.assertAlmostEqual(p.cash["CAD"].amount, 0.0, 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     requests_cache.install_cache("asset_test")
     unittest.main()

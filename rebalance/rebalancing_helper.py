@@ -42,25 +42,24 @@ def rebalance(portfolio, target_allocation):
     cmn_curr = portfolio._common_currency
     new_units = {}
     currency_cost = {}
-    for sol_mv, ticker in zip(to_buy_vals,
-                              balanced_portfolio.assets.keys()):
+    for sol_mv, ticker in zip(
+        to_buy_vals, balanced_portfolio.assets.keys(), strict=True
+    ):
         if portfolio.selling_allowed:
             new_units[ticker] = math.floor(
-                (sol_mv - portfolio.assets[ticker].market_value_in(
-                    cmn_curr)) / portfolio.assets[ticker].price_in(
-                        cmn_curr))
+                (sol_mv - portfolio.assets[ticker].market_value_in(cmn_curr))
+                / portfolio.assets[ticker].price_in(cmn_curr)
+            )
         else:
             new_units[ticker] = math.floor(
-                sol_mv /
-                portfolio.assets[ticker].price_in(cmn_curr))
+                sol_mv / portfolio.assets[ticker].price_in(cmn_curr)
+            )
 
         asset_i = portfolio.assets[ticker]
         if asset_i.currency not in currency_cost:
-            currency_cost[asset_i.currency] = asset_i.cost_of(
-                new_units[ticker])
+            currency_cost[asset_i.currency] = asset_i.cost_of(new_units[ticker])
         else:
-            currency_cost[asset_i.currency] += asset_i.cost_of(
-                new_units[ticker])
+            currency_cost[asset_i.currency] += asset_i.cost_of(new_units[ticker])
 
     # Since we converted the cash to one common currency for the rebalancing calculation, revert back
     balanced_portfolio.cash = copy.deepcopy(portfolio.cash)
@@ -75,10 +74,8 @@ def rebalance(portfolio, target_allocation):
     prices = {}
     cost = {}
     for ticker, asset in balanced_portfolio.assets.items():
-        prices[ticker] = [asset.price,
-                          asset.currency]  # price and currency of price
-        cost[ticker] = balanced_portfolio.buy_asset(
-            ticker, new_units[ticker])
+        prices[ticker] = [asset.price, asset.currency]  # price and currency of price
+        cost[ticker] = balanced_portfolio.buy_asset(ticker, new_units[ticker])
 
     return balanced_portfolio, new_units, prices, cost, exchange_history
 
@@ -100,35 +97,36 @@ def rebalance_optimizer(portfolio, target_alloc):
     nb_assets = len(portfolio.assets)
     total_cash = portfolio.cash[cmn_curr].amount
     bound = (0.00, total_cash)
-    bounds = ((bound, ) * nb_assets)
-    constraints = [{
-        'type':
-        'ineq',
-        'fun':
-        lambda new_asset_values: total_cash - np.sum(new_asset_values)
-    }]  # Can't buy more than available cash
+    bounds = (bound,) * nb_assets
+    constraints = [
+        {
+            "type": "ineq",
+            "fun": lambda new_asset_values: total_cash - np.sum(new_asset_values),
+        }
+    ]  # Can't buy more than available cash
 
-    current_asset_values = np.array([
-        asset.market_value_in(cmn_curr)
-        for asset in portfolio.assets.values()
-    ])
-    new_asset_values0 = target_alloc / 100. * portfolio.value(
-        cmn_curr) - current_asset_values
+    current_asset_values = np.array(
+        [asset.market_value_in(cmn_curr) for asset in portfolio.assets.values()]
+    )
+    new_asset_values0 = (
+        target_alloc / 100.0 * portfolio.value(cmn_curr) - current_asset_values
+    )
 
-    solution = minimize(rebalance_objective,
-                        new_asset_values0,
-                        args=(current_asset_values,
-                              target_alloc / 100.,
-                              total_cash),
-                        method='SLSQP',
-                        bounds=bounds,
-                        constraints=constraints)
+    solution = minimize(
+        rebalance_objective,
+        new_asset_values0,
+        args=(current_asset_values, target_alloc / 100.0, total_cash),
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+    )
 
     return solution.x
 
 
-def rebalance_objective(new_asset_values, current_asset_values,
-                        target_allocation, total_cash):
+def rebalance_objective(
+    new_asset_values, current_asset_values, target_allocation, total_cash
+):
     """
     Objective function used in optimization problem of portfolio rebalancing.
 
@@ -156,10 +154,9 @@ def rebalance_objective(new_asset_values, current_asset_values,
     j1 = np.inner(asset_alloc_diff, asset_alloc_diff)  # range: (0, 1)
 
     # Penalize unused cash (we use L2 norm)
-    cash_diff = (total_cash -
-                 np.sum(new_asset_values)) / (
-                     total_cash +
-                     np.sum(new_asset_values))
+    cash_diff = (total_cash - np.sum(new_asset_values)) / (
+        total_cash + np.sum(new_asset_values)
+    )
     j2 = cash_diff * cash_diff  # range: (0, 1)
 
     return j1 + j2
