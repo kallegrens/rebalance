@@ -37,8 +37,17 @@ class AssetConfig(BaseModel):
 class PortfolioConfig(BaseModel):
     name: str
     selling_allowed: bool = False
+    common_currency: str = "EUR"
     cash: list[CashConfig] = []
     assets: list[AssetConfig] = Field(min_length=1)
+
+    @field_validator("common_currency")
+    @classmethod
+    def normalise_common_currency(cls, v: str) -> str:
+        v = v.upper()
+        if len(v) != 3:
+            raise ValueError(f"common_currency must be a 3-character code, got {v!r}")
+        return v
 
     @model_validator(mode="after")
     def allocations_sum_to_100(self) -> "PortfolioConfig":
