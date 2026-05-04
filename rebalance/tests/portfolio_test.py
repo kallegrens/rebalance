@@ -1,12 +1,13 @@
 import unittest
 
 import numpy as np
-import requests_cache
+import pytest
 import yfinance as yf
 
 from rebalance import Asset, Cash, Portfolio
 
 
+@pytest.mark.integration
 class TestPortfolio(unittest.TestCase):
     def test_cash_interface(self):
         """
@@ -251,8 +252,3 @@ class TestPortfolio(unittest.TestCase):
         # there should be none after rebalacing either
         # (i.e. amount converted to CAD should be the amount used to purchase CAD assets)
         self.assertAlmostEqual(p.cash["CAD"].amount, 0.0, 1)
-
-
-if __name__ == "__main__":
-    requests_cache.install_cache("asset_test")
-    unittest.main()

@@ -1,11 +1,12 @@
 import unittest
 
-import requests_cache
+import pytest
 import yfinance as yf
 
 from rebalance import Asset, Price
 
 
+@pytest.mark.integration
 class TestAsset(unittest.TestCase):
     def test_interface(self):
         """
@@ -77,8 +78,3 @@ class TestAsset(unittest.TestCase):
             asset.buy(to_buy, currency="USD"), price.price_in("USD") * to_buy
         )
         self.assertEqual(asset.quantity, quantity + to_buy + to_buy)
-
-
-if __name__ == "__main__":
-    requests_cache.install_cache("asset_test")
-    unittest.main()

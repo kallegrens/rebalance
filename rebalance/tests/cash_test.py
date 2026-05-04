@@ -1,10 +1,11 @@
 import unittest
 
-import requests_cache
+import pytest
 
 from rebalance import Cash, Price
 
 
+@pytest.mark.integration
 class TestCash(unittest.TestCase):
     def test_interface(self):
         """
@@ -25,6 +26,7 @@ class TestCash(unittest.TestCase):
         self.assertAlmostEqual(cash.amount_in("usd"), ex_rate * amount, 10)
 
 
+@pytest.mark.integration
 class TestPrice(unittest.TestCase):
     def test_interface(self):
         """
@@ -42,8 +44,3 @@ class TestPrice(unittest.TestCase):
         # verify internal consistency using the same FX source
         ex_rate = Cash(1, currency).exchange_rate("usd")
         self.assertAlmostEqual(p.price_in("usd"), ex_rate * price, 10)
-
-
-if __name__ == "__main__":
-    requests_cache.install_cache("asset_test")
-    unittest.main()

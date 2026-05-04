@@ -1,6 +1,9 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
+from rebalance.loader import load_portfolio
 from rebalance.schemas import PortfolioConfig
 
 
@@ -153,3 +156,62 @@ class TestCashValidation:
         data = _valid_portfolio(cash=[{"amount": 500.0, "currency": "usd"}])
         config = PortfolioConfig.model_validate(data)
         assert config.cash[0].currency == "USD"
+
+
+class TestLoadPortfolio:
+    def test_assets_and_target_allocation(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio()))
+        portfolio, target = load_portfolio(str(path))
+        assert set(portfolio.assets.keys()) == {"XBB.TO", "XIC.TO"}
+        assert target == {"XBB.TO": 60.0, "XIC.TO": 40.0}
+
+    def test_cash_loaded(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(
+            json.dumps(_valid_portfolio(cash=[{"amount": 500.0, "currency": "USD"}]))
+        )
+        portfolio, _ = load_portfolio(str(path))
+        assert "USD" in portfolio.cash
+        assert portfolio.cash["USD"].amount == pytest.approx(500.0)
+
+    def test_selling_allowed_propagated(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio(selling_allowed=True)))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.selling_allowed is True
+
+    def test_common_currency_default(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio()))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.common_currency == "EUR"
+
+    def test_common_currency_override(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio(common_currency="SEK")))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.common_currency == "SEK"
+
+    def test_asset_order_preserved(self, mock_price_fetchers, tmp_path):
+        """Asset insertion order must match JSON order (optimizer depends on this)."""
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio()))
+        portfolio, target = load_portfolio(str(path))
+        assert list(portfolio.assets.keys()) == ["XBB.TO", "XIC.TO"]
+        assert list(target.keys()) == ["XBB.TO", "XIC.TO"]
+
+    def test_file_not_found(self):
+        with pytest.raises(FileNotFoundError):
+            load_portfolio("/nonexistent/path.json")
+
+    def test_validation_error_propagates(self, tmp_path):
+        # Single asset with 50% allocation — fails the "must sum to 100" validator
+        bad = {
+            "name": "bad",
+            "assets": [{"ticker": "X", "quantity": 5, "target_allocation": 50.0}],
+        }
+        path = tmp_path / "bad.json"
+        path.write_text(json.dumps(bad))
+        with pytest.raises(ValidationError):
+            load_portfolio(str(path))
