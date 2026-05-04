@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+.DS_Store
 
 # C extensions
 *.so
@@ -47,5 +48,14 @@ htmlcov
 *.log
 *.pot
 
+# Portfolio data (contains personal financial positions)
+portfolios/*.json
+
+# Downloaded market data
+*.csv
+
 # Sphinx documentation
 docs/_build/
+
+# Data files
+*.csv
