@@ -1,3 +1,5 @@
+from loguru import logger
+
 from .fetchers import fetch_nasdaq_nordic_price, fetch_yfinance_price
 
 
@@ -16,6 +18,7 @@ class Asset:
         session=None,
         nasdaq_nordic_id=None,
         nasdaq_nordic_asset_class=None,
+        name=None,
     ):
         """
         Initialization.
@@ -24,9 +27,11 @@ class Asset:
         ----
         - ticker (str): Ticker of the asset.
         - quantity (int, optional): Number of units of the asset. Default is zero.
-        - session (optional): Web session for caching. May be None. If None, yfinance will handle session management.
+        - session (optional): Requests session passed to the Nasdaq Nordic
+            fetcher. Not used for yfinance (which manages its own session).
         - nasdaq_nordic_id (str, optional): Nasdaq Nordic instrument ID (e.g. "TX4856348"). If provided, price is fetched from the Nasdaq Nordic API.
         - nasdaq_nordic_asset_class (str, optional): Asset class for Nasdaq Nordic API (e.g. "ETN/ETC", "ETF", "Share"). Required when nasdaq_nordic_id is set.
+        - name (str, optional): Human-readable name of the asset. Default is None.
         """
 
         assert ticker is not None, "ticker symbol is a mandatory argument."
@@ -34,16 +39,28 @@ class Asset:
 
         self._ticker = ticker
         self._quantity = quantity
+        self._name = name
 
         if nasdaq_nordic_id is not None:
             assert nasdaq_nordic_asset_class is not None, (
                 "nasdaq_nordic_asset_class is required when nasdaq_nordic_id is set."
             )
+            logger.debug(
+                "Fetching Nasdaq Nordic price for {} ({})",
+                self._ticker,
+                nasdaq_nordic_id,
+            )
             self._price = fetch_nasdaq_nordic_price(
-                nasdaq_nordic_id, nasdaq_nordic_asset_class
+                nasdaq_nordic_id, nasdaq_nordic_asset_class, session=session
             )
         else:
-            self._price = fetch_yfinance_price(self._ticker, session)
+            logger.debug("Fetching price for {}", self._ticker)
+            self._price = fetch_yfinance_price(self._ticker)
+
+    @property
+    def name(self):
+        """(str | None): Human-readable name of the asset."""
+        return self._name
 
     @property
     def quantity(self):

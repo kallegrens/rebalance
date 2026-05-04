@@ -1,12 +1,17 @@
 import argparse
 import sys
 
+from loguru import logger
 from pydantic import ValidationError
 
 from rebalance.loader import load_portfolio
+from rebalance.logging_setup import setup_logging
+from rebalance.notifications import notify_failure
 
 
 def main():
+    setup_logging()
+
     parser = argparse.ArgumentParser(
         description="Rebalance a portfolio defined in a JSON file."
     )
@@ -18,17 +23,25 @@ def main():
 
     try:
         portfolio, target_allocation = load_portfolio(args.portfolio)
-    except FileNotFoundError:
-        print(f"Error: portfolio file not found: {args.portfolio}", file=sys.stderr)
+    except FileNotFoundError as e:
+        logger.error("Portfolio file not found: {}", args.portfolio)
+        notify_failure(e, context=args.portfolio)
         sys.exit(1)
     except ValidationError as e:
-        print(f"Error: invalid portfolio file:\n{e}", file=sys.stderr)
+        logger.error("Invalid portfolio file:\n{}", e)
+        notify_failure(e, context=args.portfolio)
         sys.exit(1)
     except ValueError as e:
-        print(f"Error: invalid portfolio file: {e}", file=sys.stderr)
+        logger.error("Invalid portfolio file: {}", e)
+        notify_failure(e, context=args.portfolio)
         sys.exit(1)
 
-    portfolio.rebalance(target_allocation, verbose=args.verbose)
+    try:
+        portfolio.rebalance(target_allocation, verbose=args.verbose)
+    except Exception as e:
+        logger.exception("Rebalancing failed unexpectedly")
+        notify_failure(e, context=args.portfolio)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

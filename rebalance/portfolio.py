@@ -1,6 +1,7 @@
 import copy
 
 import numpy as np
+from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
@@ -37,7 +38,18 @@ class Portfolio:
         self._assets = {}
         self._cash = {}
         self._is_selling_allowed = False
-        self._common_currency = "USD"
+        self._common_currency = "EUR"
+
+    @property
+    def common_currency(self):
+        """
+        str: Currency used as the pivot for allocation and optimisation calculations.
+        """
+        return self._common_currency
+
+    @common_currency.setter
+    def common_currency(self, currency):
+        self._common_currency = currency.upper()
 
     @property
     def cash(self):
@@ -278,6 +290,7 @@ class Portfolio:
         """
 
         # order target_allocation dict in the same order as assets dict and upper key
+        logger.info("Rebalancing portfolio ({} assets)", len(self._assets))
         target_allocation_reordered = {}
         try:
             for key in self.assets:
@@ -314,8 +327,17 @@ class Portfolio:
         )
 
         if verbose:
+            show_names = any(
+                a.name is not None for a in balanced_portfolio.assets.values()
+            )
+
             table = Table(show_header=True, header_style="bold")
-            table.add_column("Ticker")
+            if show_names:
+                table.add_column(
+                    "Name", max_width=35, no_wrap=True, overflow="ellipsis"
+                )
+            else:
+                table.add_column("Ticker")
             table.add_column("Price", justify="right")
             table.add_column("Δ Units", justify="right")
             table.add_column("Amount", justify="right")
@@ -348,8 +370,13 @@ class Portfolio:
                     else f"{new_a:.2f}"
                 )
 
-                table.add_row(
-                    ticker,
+                asset_label = (
+                    balanced_portfolio.assets[ticker].name or ticker
+                    if show_names
+                    else ticker
+                )
+                row = [asset_label]
+                row += [
                     f"{prices[ticker][0]:,.2f}",
                     qty_str,
                     amt_str,
@@ -357,8 +384,8 @@ class Portfolio:
                     f"{old_alloc[ticker]:.2f}",
                     new_alloc_str,
                     f"{tgt_a:.2f}",
-                    style=row_style,
-                )
+                ]
+                table.add_row(*row, style=row_style)
 
             _console.print()
             _console.print(table)
@@ -391,6 +418,7 @@ class Portfolio:
 
         # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)
+        logger.info("Rebalancing complete (largest discrepancy: {:.2f}%)", max_diff)
 
         return (new_units, prices, exchange_history, max_diff)
 
