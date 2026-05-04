@@ -1,5 +1,6 @@
 from currency_converter import CurrencyConverter
 
+
 class Cash:
     """
     An instance of :class:`Cash` holds an amount and a currency.
@@ -8,6 +9,7 @@ class Cash:
         currency_rates (currency_converter.CurrencyConverter) : Used for currency conversion.
 
     """
+
     currency_rates = CurrencyConverter()
 
     def __init__(self, amount, currency="USD"):
@@ -66,8 +68,49 @@ class Cash:
 
         return Cash.currency_rates.convert(1, self.currency, currency.upper())
 
-    def __str__(self):
+
+class Price:
+    """
+    An instance of :class:`Price` holds a price and a currency.
+    """
+
+    def __init__(self, price, currency="USD"):
         """
-        Format a string.
+        Initialization.
+
+        Args:
+            price (float): Price.
+            currency (str, optional): Currency of price. Defaults to "USD".
         """
-        return f"{self._currency:4}   {1:3d}  {self._amount:8.2f}"
+        self._price = price
+        self._currency = currency.upper()
+
+    @property
+    def price(self):
+        """
+        (float): Price (in own's currency).
+        """
+        return self._price
+
+    @property
+    def currency(self):
+        """
+        (str): Currency of price.
+        """
+        return self._currency
+
+    def price_in(self, currency):
+        """
+        Converts price in specified currency.
+
+        Args:
+            currency (str): Currency in which to convert the price.
+
+        Returns:
+            (float): Price in specified currency.
+        """
+        currency_exchange = Cash.currency_rates.convert(
+            1, self.currency, currency.upper()
+        )
+
+        return currency_exchange * self._price

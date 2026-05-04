@@ -1,14 +1,14 @@
 import copy
-import math
-from typing import Sequence
 
 import numpy as np
-
-from .asset import Asset
-from .cash import Cash
-from .price import Price
+from rich.console import Console
+from rich.table import Table
 
 from . import rebalancing_helper
+from .asset import Asset
+from .money import Cash
+
+_console = Console()
 
 
 class TargetException(Exception):
@@ -29,6 +29,7 @@ class Portfolio:
     Defines a :class:`.Portfolio` of :class:`.Asset` s and :class:`.Cash` and performs rebalancing of the portfolio.
 
     """
+
     def __init__(self):
         """
         Initialization.
@@ -73,10 +74,10 @@ class Portfolio:
             currencies (Sequence[str]): Specifies curriency of each of the amounts. Must be  in the same order as ``amounts``.
 
         """
-        assert len(amounts) == len(
-            currencies
-        ), "`amounts` and `currencies` should be of the same length."
-        for amount, currency in zip(amounts, currencies):
+        assert len(amounts) == len(currencies), (
+            "`amounts` and `currencies` should be of the same length."
+        )
+        for amount, currency in zip(amounts, currencies, strict=True):
             self._cash[currency.upper()] = Cash(amount, currency)
 
     @property
@@ -118,10 +119,11 @@ class Portfolio:
             quantities (Sequence[float]): Quantities of respective assets in portfolio. Must be in the same order as ``tickers``.
         """
 
-        assert len(tickers) == len(quantities), \
+        assert len(tickers) == len(quantities), (
             "`names` and `quantities` must be of the same length."
+        )
 
-        for ticker, quantity in zip(tickers, quantities):
+        for ticker, quantity in zip(tickers, quantities, strict=True):
             self._assets[ticker] = Asset(ticker, quantity)
 
     def asset_allocation(self):
@@ -137,13 +139,14 @@ class Portfolio:
         total_value = self.market_value(self._common_currency)
 
         total_value = max(
-            1., total_value
+            1.0, total_value
         )  # protect against division by 0 (total_value = 0, means new portfolio)
 
         asset_allocation = {}
         for name, asset in self._assets.items():
-            asset_allocation[name] = asset.market_value_in(
-                self._common_currency) / total_value * 100.
+            asset_allocation[name] = (
+                asset.market_value_in(self._common_currency) / total_value * 100.0
+            )
 
         return asset_allocation
 
@@ -158,7 +161,7 @@ class Portfolio:
             float: The total market value of the assets in the portfolio.
         """
 
-        mv = 0.
+        mv = 0.0
         for asset in self.assets.values():
             mv += asset.market_value_in(currency)
 
@@ -175,7 +178,7 @@ class Portfolio:
             float: The total cash value in the portfolio.
         """
 
-        cv = 0.
+        cv = 0.0
         for cash in self.cash.values():
             cv += cash.amount_in(currency)
 
@@ -214,11 +217,9 @@ class Portfolio:
         self.add_cash(-cost, asset.currency)
         return cost
 
-    def exchange_currency(self,
-                          to_currency,
-                          from_currency,
-                          to_amount=None,
-                          from_amount=None):
+    def exchange_currency(
+        self, to_currency, from_currency, to_amount=None, from_amount=None
+    ):
         """
         Performs currency exchange in Portfolio.
 
@@ -239,21 +240,24 @@ class Portfolio:
         self.add_cash(0.0, to_currency)
 
         if to_amount is None and from_amount is None:
-            raise Exception(
-                "Argument `to_amount` or `from_amount` must be specified.")
+            raise Exception("Argument `to_amount` or `from_amount` must be specified.")
 
         if to_amount is not None and from_amount is not None:
             raise Exception(
-                "Please specify only `to_amount` or `from_amount`, not both.")
+                "Please specify only `to_amount` or `from_amount`, not both."
+            )
 
         if to_amount is not None:
-            from_amount = self.cash[to_currency].exchange_rate(
-                from_currency) * to_amount
+            from_amount = (
+                self.cash[to_currency].exchange_rate(from_currency) * to_amount
+            )
         elif from_amount is not None:
-            to_amount = self.cash[from_currency].exchange_rate(
-                to_currency) * from_amount
+            to_amount = (
+                self.cash[from_currency].exchange_rate(to_currency) * from_amount
+            )
 
         self.add_cash(to_amount, to_currency)
+        assert from_amount is not None
         self.add_cash(-from_amount, from_currency)
 
     def rebalance(self, target_allocation, verbose=False):
@@ -278,13 +282,14 @@ class Portfolio:
         try:
             for key in self.assets:
                 target_allocation_reordered[key] = target_allocation[key]
-        except:
+        except KeyError as err:
             raise Exception(
                 "'target_allocation not compatible with the assets of the portfolio."
-            )
+            ) from err
 
         target_allocation_np = np.fromiter(
-            target_allocation_reordered.values(), dtype=float)
+            target_allocation_reordered.values(), dtype=float
+        )
 
         target_total = np.sum(target_allocation_np)
 
@@ -292,82 +297,97 @@ class Portfolio:
             raise TargetException(
                 "Target allocation must sum up to 100%.",
                 target_allocation_np,
-                target_total
+                target_total,
             )
 
         # offload heavy work
-        (balanced_portfolio, new_units, prices, cost, exchange_history) = rebalancing_helper.rebalance(self, target_allocation_np)
+        (balanced_portfolio, new_units, prices, cost, exchange_history) = (
+            rebalancing_helper.rebalance(self, target_allocation_np)
+        )
 
         # compute old and new asset allocation
         # and largest diff between new and target asset allocation
         old_alloc = self.asset_allocation()
         new_alloc = balanced_portfolio.asset_allocation()
         max_diff = max(
-            abs(target_allocation_np -
-                np.fromiter(new_alloc.values(), dtype=float)))
+            abs(target_allocation_np - np.fromiter(new_alloc.values(), dtype=float))
+        )
 
         if verbose:
-            # --- Calculate the required width for the ticker column ---
-            # Find the length of the longest ticker string to set the column width dynamically.
-            # We take the max of the header "Ticker" and the actual longest ticker name.
-            ticker_col_width = max(len(t) for t in balanced_portfolio.assets)
-            ticker_col_width = max(ticker_col_width, len("Ticker"))
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("Ticker")
+            table.add_column("Price", justify="right")
+            table.add_column("Δ Units", justify="right")
+            table.add_column("Amount", justify="right")
+            table.add_column("CCY")
+            table.add_column("Old %", justify="right")
+            table.add_column("New %", justify="right")
+            table.add_column("Target %", justify="right")
 
-            # --- Print Headers ---
-            # Use f-strings with the dynamic width to ensure headers align with the data.
-            header1 = (
-                f"{'Ticker':<{ticker_col_width}}     Price    Quantity        Amount    "
-                f"Currency     Old allocation   New allocation     Target allocation"
-            )
-            header2 = (
-                f"{'':<{ticker_col_width}}             to buy/sell    ($,£,€,kr)                    "
-                f"(%)              (%)                 (%)"
-            )
-            
-            print("")
-            print(header1)
-            print(header2)
-            print("-" * len(header1)) # A dynamic separator line
-
-            # --- Print Data Rows ---
             for ticker in balanced_portfolio.assets:
-                # Use the calculated width and left-align (<) the ticker for clean alignment.
-                print(
-                    f"{ticker:<{ticker_col_width}}   {prices[ticker][0]:7.2f}   {new_units[ticker]:6,d}"
-                    f"        {cost[ticker]:10,.0f}     {prices[ticker][1]:>4s}"
-                    f"          {old_alloc[ticker]:5,.2f}            {new_alloc[ticker]:5.2f}"
-                    f"               {target_allocation[ticker]:5.2f}"
+                is_winding_down = target_allocation[ticker] == 0.0
+                row_style = "dim" if is_winding_down else ""
+
+                qty = new_units[ticker]
+                amt = cost[ticker]
+                if qty > 0:
+                    qty_str = f"[green]{qty:,d}[/green]"
+                    amt_str = f"[green]{amt:,.0f}[/green]"
+                elif qty < 0:
+                    qty_str = f"[red]{qty:,d}[/red]"
+                    amt_str = f"[red]{amt:,.0f}[/red]"
+                else:
+                    qty_str = f"[dim]{qty:,d}[/dim]"
+                    amt_str = f"[dim]{amt:,.0f}[/dim]"
+
+                new_a = new_alloc[ticker]
+                tgt_a = target_allocation[ticker]
+                new_alloc_str = (
+                    f"[yellow]{new_a:.2f}[/yellow]"
+                    if abs(new_a - tgt_a) > 0.5
+                    else f"{new_a:.2f}"
                 )
 
-            print("")
-            print(
-                "Largest discrepancy between the new and the target asset allocation is %.2f %%."
-                % (max_diff))
+                table.add_row(
+                    ticker,
+                    f"{prices[ticker][0]:,.2f}",
+                    qty_str,
+                    amt_str,
+                    prices[ticker][1],
+                    f"{old_alloc[ticker]:.2f}",
+                    new_alloc_str,
+                    f"{tgt_a:.2f}",
+                    style=row_style,
+                )
 
-            # Print conversion exchange
-            if len(exchange_history) > 0:
-                print("")
-                if len(exchange_history) > 1:
-                    print(
-                        "Before making the above purchases, the following currency conversions are required:"
+            _console.print()
+            _console.print(table)
+            _console.print(
+                f"Largest discrepancy between new and target allocation: [bold]{max_diff:.2f}%[/bold]"
+            )
+
+            if exchange_history:
+                noun = (
+                    "conversions are" if len(exchange_history) > 1 else "conversion is"
+                )
+                _console.print(
+                    f"\nBefore making the above purchases, the following currency {noun} required:"
+                )
+                for (
+                    from_amount,
+                    from_currency,
+                    to_amount,
+                    to_currency,
+                    rate,
+                ) in exchange_history:
+                    _console.print(
+                        f"  {from_amount:.0f} {from_currency} → {to_amount:.0f} {to_currency} "
+                        f"at a rate of {rate:.4f}"
                     )
-                else:
-                    print(
-                        "Before making the above purchases, the following currency conversion is required:"
-                    )
 
-                for exchange in exchange_history:
-                    (from_amount, from_currency, to_amount, to_currency,
-                    rate) = exchange
-                    print("    %.0f %s to %.0f %s at a rate of %.4f." %
-                        (from_amount, from_currency, to_amount, to_currency,
-                        rate))
-
-            # Print remaining cash
-            print("")
-            print("Remaining cash:")
+            _console.print("\nRemaining cash:")
             for cash in balanced_portfolio.cash.values():
-                print("    %.0f %s." % (cash.amount, cash.currency))
+                _console.print(f"  {cash.amount:,.0f} {cash.currency}")
 
         # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)
@@ -376,11 +396,11 @@ class Portfolio:
 
     def _sell_everything(self):
         """
-            Sells all assets in the portfolio and converts them to cash.
+        Sells all assets in the portfolio and converts them to cash.
         """
 
         for ticker, asset in self._assets.items():
-            self.buy_asset(ticker, - asset.quantity)
+            self.buy_asset(ticker, -asset.quantity)
 
     def _combine_cash(self, currency=None):
         """
@@ -393,12 +413,18 @@ class Portfolio:
         if currency is None:
             currency = self._common_currency
 
-        cash_vals = list(self.cash.values()) # needed since cash dict might increase in size
+        cash_vals = list(
+            self.cash.values()
+        )  # needed since cash dict might increase in size
         for cash in cash_vals:
             if cash.currency == currency:
                 continue
 
-            self.exchange_currency(to_currency=currency, from_currency=cash.currency, from_amount=cash.amount)
+            self.exchange_currency(
+                to_currency=currency,
+                from_currency=cash.currency,
+                from_amount=cash.amount,
+            )
 
     def _smart_exchange(self, currency_amount):
         """
@@ -417,7 +443,6 @@ class Portfolio:
         """
 
         # first, compute amount we have to convert to and amount we have for conversion
-
 
         to_conv = {}
         from_conv = copy.deepcopy(self.cash)
@@ -442,17 +467,25 @@ class Portfolio:
             for from_cash in from_conv.values():
                 if from_cash.amount_in(to_cash.currency) >= to_cash.amount:
                     # perform conversion
-                    self.exchange_currency(to_currency=to_cash.currency,
-                                           from_currency=from_cash.currency,
-                                           to_amount=to_cash.amount)
+                    self.exchange_currency(
+                        to_currency=to_cash.currency,
+                        from_currency=from_cash.currency,
+                        to_amount=to_cash.amount,
+                    )
 
                     # update amount we have to convert to or amount we have for conversion
                     amt = to_cash.amount_in(from_cash.currency)
 
                     rate = from_cash.exchange_rate(to_cash.currency)
                     exchange_history.append(
-                        (amt, from_cash.currency, to_cash.amount,
-                         to_cash.currency, rate))
+                        (
+                            amt,
+                            from_cash.currency,
+                            to_cash.amount,
+                            to_cash.currency,
+                            rate,
+                        )
+                    )
 
                     from_cash.amount -= amt
                     to_cash.amount = 0.00
@@ -471,13 +504,20 @@ class Portfolio:
                         self.exchange_currency(
                             to_currency=to_cash.currency,
                             from_currency=from_cash.currency,
-                            to_amount=to_cash.amount)
+                            to_amount=to_cash.amount,
+                        )
 
                         amt = to_cash.amount_in(from_cash.currency)
                         rate = from_cash.exchange_rate(to_cash.currency)
                         exchange_history.append(
-                            (amt, from_cash.currency, to_cash.amount,
-                             to_cash.currency, rate))
+                            (
+                                amt,
+                                from_cash.currency,
+                                to_cash.amount,
+                                to_cash.currency,
+                                rate,
+                            )
+                        )
 
                         # update amount we have to convert to and amount we have for conversion
                         from_cash.amount -= amt
@@ -486,13 +526,20 @@ class Portfolio:
                         self.exchange_currency(
                             to_currency=to_cash.currency,
                             from_currency=from_cash.currency,
-                            from_amount=from_cash.amount)
+                            from_amount=from_cash.amount,
+                        )
                         amt = from_cash.amount_in(to_cash.currency)
 
                         rate = from_cash.exchange_rate(to_cash.currency)
                         exchange_history.append(
-                            (from_cash.amount, from_cash.currency, amt,
-                             to_cash.currency, rate))
+                            (
+                                from_cash.amount,
+                                from_cash.currency,
+                                amt,
+                                to_cash.currency,
+                                rate,
+                            )
+                        )
 
                         # update amount we have to convert to and amount we have for conversion
                         to_cash.amount -= amt
@@ -506,17 +553,19 @@ class Portfolio:
         """
         result = [""]
 
-        result.append('Assets')
+        result.append("Assets")
         for asset in self.assets.values():
             result.append(str(asset))
 
-        result.append('')
-        result.append('Cash')
+        result.append("")
+        result.append("Cash")
         for cash in self.cash.values():
             result.append(str(cash))
 
-        result.append('')
-        result.append('Value')
-        result.append(f"{self._common_currency} 1 {self.value(self._common_currency):.2f}")
+        result.append("")
+        result.append("Value")
+        result.append(
+            f"{self._common_currency} 1 {self.value(self._common_currency):.2f}"
+        )
 
-        return '\n'.join(result)
+        return "\n".join(result)

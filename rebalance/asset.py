@@ -1,5 +1,4 @@
-from .price import Price
-import yfinance as yf
+from .fetchers import fetch_nasdaq_nordic_price, fetch_yfinance_price
 
 
 class Asset:
@@ -10,7 +9,14 @@ class Asset:
 
     """
 
-    def __init__(self, ticker, quantity=0, session=None):
+    def __init__(
+        self,
+        ticker,
+        quantity=0,
+        session=None,
+        nasdaq_nordic_id=None,
+        nasdaq_nordic_asset_class=None,
+    ):
         """
         Initialization.
 
@@ -19,6 +25,8 @@ class Asset:
         - ticker (str): Ticker of the asset.
         - quantity (int, optional): Number of units of the asset. Default is zero.
         - session (optional): Web session for caching. May be None. If None, yfinance will handle session management.
+        - nasdaq_nordic_id (str, optional): Nasdaq Nordic instrument ID (e.g. "TX4856348"). If provided, price is fetched from the Nasdaq Nordic API.
+        - nasdaq_nordic_asset_class (str, optional): Asset class for Nasdaq Nordic API (e.g. "ETN/ETC", "ETF", "Share"). Required when nasdaq_nordic_id is set.
         """
 
         assert ticker is not None, "ticker symbol is a mandatory argument."
@@ -27,14 +35,15 @@ class Asset:
         self._ticker = ticker
         self._quantity = quantity
 
-        # Let yfinance handle session management if no session is provided
-        if session is None:
-            ticker_info = yf.Ticker(self._ticker).fast_info
+        if nasdaq_nordic_id is not None:
+            assert nasdaq_nordic_asset_class is not None, (
+                "nasdaq_nordic_asset_class is required when nasdaq_nordic_id is set."
+            )
+            self._price = fetch_nasdaq_nordic_price(
+                nasdaq_nordic_id, nasdaq_nordic_asset_class
+            )
         else:
-            ticker_info = yf.Ticker(self._ticker, session=session).fast_info
-
-        # we fetch the price
-        self._price = Price(ticker_info["lastPrice"], ticker_info["currency"])
+            self._price = fetch_yfinance_price(self._ticker, session)
 
     @property
     def quantity(self):

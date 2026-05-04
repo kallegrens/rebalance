@@ -1,6 +1,7 @@
 __version__ = "0.1"
 
-from .cash import Cash
-from .price import Price
-from .asset import Asset
-from .portfolio import Portfolio, TargetException
+from .asset import Asset as Asset
+from .money import Cash as Cash
+from .money import Price as Price
+from .portfolio import Portfolio as Portfolio
+from .portfolio import TargetException as TargetException
