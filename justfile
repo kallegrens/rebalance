@@ -3,6 +3,9 @@ default: test
 test:
     uv run pytest rebalance/tests/ -v
 
+test-fast:
+    uv run pytest rebalance/tests/ -v -m 'not integration'
+
 coverage:
     uv run pytest rebalance/tests/ --cov=rebalance --cov-report=html
 
@@ -19,4 +22,4 @@ hooks:
     prek run --all-files
 
 run portfolio:
-    uv run rebalance {{portfolio}} --verbose
+    uv run rebalance {{ portfolio }} --verbose
