@@ -1,16 +1,39 @@
-from currency_converter import CurrencyConverter
+from functools import lru_cache
+
+import yfinance as yf
+
+
+def fetch_fx_rate(from_currency: str, to_currency: str) -> float:
+    """Fetch the current FX rate from *from_currency* to *to_currency* via yfinance.
+
+    Args:
+        from_currency (str): ISO 4217 currency code to convert from (e.g. ``"SEK"``).
+        to_currency (str): ISO 4217 currency code to convert to (e.g. ``"EUR"``).
+
+    Returns:
+        float: Units of *to_currency* per one unit of *from_currency*.
+    """
+    if from_currency == to_currency:
+        return 1.0
+    ticker = f"{from_currency}{to_currency}=X"
+    return float(yf.Ticker(ticker).fast_info["lastPrice"])
+
+
+@lru_cache(maxsize=32)
+def _cached_fx_rate(from_currency: str, to_currency: str) -> float:
+    """Cached wrapper around :func:`.fetchers.fetch_fx_rate`.
+
+    The cache lives for the duration of the process, so each currency pair is
+    fetched at most once per run regardless of how many assets share the same
+    currencies.
+    """
+    return fetch_fx_rate(from_currency, to_currency)
 
 
 class Cash:
     """
     An instance of :class:`Cash` holds an amount and a currency.
-
-    Attributes
-        currency_rates (currency_converter.CurrencyConverter) : Used for currency conversion.
-
     """
-
-    currency_rates = CurrencyConverter()
 
     def __init__(self, amount, currency="USD"):
         """
@@ -66,7 +89,7 @@ class Cash:
             (float): exchange rate.
         """
 
-        return Cash.currency_rates.convert(1, self.currency, currency.upper())
+        return _cached_fx_rate(self.currency, currency.upper())
 
 
 class Price:
@@ -109,8 +132,4 @@ class Price:
         Returns:
             (float): Price in specified currency.
         """
-        currency_exchange = Cash.currency_rates.convert(
-            1, self.currency, currency.upper()
-        )
-
-        return currency_exchange * self._price
+        return _cached_fx_rate(self.currency, currency.upper()) * self._price
