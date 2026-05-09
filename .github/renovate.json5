@@ -1,43 +1,53 @@
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended", "customManagers:githubActionsVersions"],
-
-  // Run on weekends to avoid noisy weekday PRs
-  schedule: ["every weekend"],
-  labels: ["dependencies"],
-
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    'customManagers:githubActionsVersions',
+  ],
+  schedule: [
+    'every weekend',
+  ],
+  labels: [
+    'dependencies',
+  ],
   customManagers: [
     {
-      // Track prek.toml hook versions via annotation comments
-      customType: "regex",
-      fileMatch: ["^prek\\.toml$"],
-      matchStrings: [
-        "# renovate: datasource=(?<datasource>[\\w-]+) depName=(?<depName>\\S+)\\s+rev\\s*=\\s*\"(?<currentValue>[^\"]+)\"",
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^prek\\.toml$/',
       ],
-      versioningTemplate: "semver",
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[\\w-]+) depName=(?<depName>\\S+)\\s+rev\\s*=\\s*"(?<currentValue>[^"]+)"',
+      ],
+      versioningTemplate: 'semver',
     },
     {
-      // Track prek binary version pinned in CI workflows
-      customType: "regex",
-      fileMatch: ["^\\.github/workflows/.*\\.ya?ml$"],
-      matchStrings: [
-        "# renovate: datasource=(?<datasource>[\\w-]+) depName=(?<depName>\\S+)\\s+PREK_VERSION:\\s+\"(?<currentValue>[^\"]+)\"",
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^\\.github/workflows/.*\\.ya?ml$/',
       ],
-      versioningTemplate: "semver",
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[\\w-]+) depName=(?<depName>\\S+)\\s+PREK_VERSION:\\s+"(?<currentValue>[^"]+)"',
+      ],
+      versioningTemplate: 'semver',
     },
   ],
-
   packageRules: [
     {
-      // Batch all GitHub Actions bumps (SHA pins + version comments) into one PR
-      matchManagers: ["github-actions"],
-      groupName: "GitHub Actions",
+      matchManagers: [
+        'github-actions',
+      ],
+      groupName: 'GitHub Actions',
       pinDigests: true,
     },
     {
-      // Batch all Python dependency updates into one PR
-      matchManagers: ["pip_requirements", "pip-compile", "pipenv", "pep621"],
-      groupName: "Python dependencies",
+      matchManagers: [
+        'pip_requirements',
+        'pip-compile',
+        'pipenv',
+        'pep621',
+      ],
+      groupName: 'Python dependencies',
     },
   ],
 }
