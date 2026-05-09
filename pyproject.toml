@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "rebalance"
 version = "0.3.0"
 description = "A calculator which tells you how to split your investment amongst your portfolio's assets based on your target asset allocation."
-readme = "README.rst"
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Karl Lundgren", email = "k.github@lundgrens.net" }]
 dependencies = [
