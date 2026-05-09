@@ -13,7 +13,7 @@ authors = [{ name = "Karl Lundgren", email = "k.github@lundgrens.net" }]
 dependencies = [
     "numpy>=1.26.1",
     "requests>=2.31.0",
-    "scipy>=1.11.3",
+    "cvxpy>=1.8.2",
     "yfinance>=0.2.65",
     "pydantic>=2.0",
     "rich>=13.0",
@@ -38,7 +38,7 @@ select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
 [tool.ty.analysis]
-allowed-unresolved-imports = ["scipy", "yfinance"]
+allowed-unresolved-imports = ["cvxpy", "yfinance"]
 
 [tool.pytest.ini_options]
 testpaths = ["rebalance/tests"]

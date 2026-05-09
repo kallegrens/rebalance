@@ -173,11 +173,11 @@ class Portfolio:
             float: The total market value of the assets in the portfolio.
         """
 
-        mv = 0.0
+        total = 0.0
         for asset in self.assets.values():
-            mv += asset.market_value_in(currency)
+            total += asset.market_value_in(currency)
 
-        return mv
+        return total
 
     def cash_value(self, currency):
         """
@@ -190,11 +190,11 @@ class Portfolio:
             float: The total cash value in the portfolio.
         """
 
-        cv = 0.0
+        total = 0.0
         for cash in self.cash.values():
-            cv += cash.amount_in(currency)
+            total += cash.amount_in(currency)
 
-        return cv
+        return total
 
     def value(self, currency):
         """
@@ -315,15 +315,17 @@ class Portfolio:
 
         # offload heavy work
         (balanced_portfolio, new_units, prices, cost, exchange_history) = (
-            rebalancing_helper.rebalance(self, target_allocation_np)
+            rebalancing_helper.rebalance(self, target_allocation_reordered)
         )
 
         # compute old and new asset allocation
         # and largest diff between new and target asset allocation
-        old_alloc = self.asset_allocation()
-        new_alloc = balanced_portfolio.asset_allocation()
-        max_diff = max(
-            abs(target_allocation_np - np.fromiter(new_alloc.values(), dtype=float))
+        old_allocation = self.asset_allocation()
+        new_allocation = balanced_portfolio.asset_allocation()
+        largest_discrepancy = max(
+            abs(
+                target_allocation_np - np.fromiter(new_allocation.values(), dtype=float)
+            )
         )
 
         if verbose:
@@ -352,17 +354,18 @@ class Portfolio:
 
                 qty = new_units[ticker]
                 amt = cost[ticker]
+                qty_fmt = f"{qty:,d}" if isinstance(qty, int) else f"{qty:,.3f}"
                 if qty > 0:
-                    qty_str = f"[green]{qty:,d}[/green]"
+                    qty_str = f"[green]{qty_fmt}[/green]"
                     amt_str = f"[green]{amt:,.0f}[/green]"
                 elif qty < 0:
-                    qty_str = f"[red]{qty:,d}[/red]"
+                    qty_str = f"[red]{qty_fmt}[/red]"
                     amt_str = f"[red]{amt:,.0f}[/red]"
                 else:
-                    qty_str = f"[dim]{qty:,d}[/dim]"
+                    qty_str = f"[dim]{qty_fmt}[/dim]"
                     amt_str = f"[dim]{amt:,.0f}[/dim]"
 
-                new_a = new_alloc[ticker]
+                new_a = new_allocation[ticker]
                 tgt_a = target_allocation[ticker]
                 new_alloc_str = (
                     f"[yellow]{new_a:.2f}[/yellow]"
@@ -381,7 +384,7 @@ class Portfolio:
                     qty_str,
                     amt_str,
                     prices[ticker][1],
-                    f"{old_alloc[ticker]:.2f}",
+                    f"{old_allocation[ticker]:.2f}",
                     new_alloc_str,
                     f"{tgt_a:.2f}",
                 ]
@@ -390,7 +393,7 @@ class Portfolio:
             _console.print()
             _console.print(table)
             _console.print(
-                f"Largest discrepancy between new and target allocation: [bold]{max_diff:.2f}%[/bold]"
+                f"Largest discrepancy between new and target allocation: [bold]{largest_discrepancy:.2f}%[/bold]"
             )
 
             if exchange_history:
@@ -418,9 +421,11 @@ class Portfolio:
 
         # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)
-        logger.info("Rebalancing complete (largest discrepancy: {:.2f}%)", max_diff)
+        logger.info(
+            "Rebalancing complete (largest discrepancy: {:.2f}%)", largest_discrepancy
+        )
 
-        return (new_units, prices, exchange_history, max_diff)
+        return (new_units, prices, exchange_history, largest_discrepancy)
 
     def _sell_everything(self):
         """
@@ -472,27 +477,27 @@ class Portfolio:
 
         # first, compute amount we have to convert to and amount we have for conversion
 
-        to_conv = {}
-        from_conv = copy.deepcopy(self.cash)
-        for curr in currency_amount:
-            if curr not in self.cash:
-                from_conv[curr] = Cash(0.00, curr)
+        to_fund = {}
+        available = copy.deepcopy(self.cash)
+        for currency in currency_amount:
+            if currency not in self.cash:
+                available[currency] = Cash(0.00, currency)
 
-            to = currency_amount[curr] - from_conv[curr].amount
+            shortfall = currency_amount[currency] - available[currency].amount
 
-            if to > 0:
-                to_conv[curr] = Cash(to, curr)
-                del from_conv[curr]  # no extra cash available for conversion
+            if shortfall > 0:
+                to_fund[currency] = Cash(shortfall, currency)
+                del available[currency]  # no extra cash available for conversion
             else:
                 # no conversion will be necessary
-                from_conv[curr].amount -= currency_amount[curr]
+                available[currency].amount -= currency_amount[currency]
 
         # perform currency exchange
         exchange_history = []
-        for to_cash in to_conv.values():
-            one_exchange = False
+        for to_cash in to_fund.values():
+            single_source_sufficient = False
             # Try converting one shot if possible
-            for from_cash in from_conv.values():
+            for from_cash in available.values():
                 if from_cash.amount_in(to_cash.currency) >= to_cash.amount:
                     # perform conversion
                     self.exchange_currency(
@@ -519,14 +524,14 @@ class Portfolio:
                     to_cash.amount = 0.00
 
                     # move to next 'to_cash'
-                    one_exchange = True
+                    single_source_sufficient = True
                     break
 
             # If we reached here,
             # it means we couldn't perform one currency exchange to meet our 'to_cash'
             # So we'll just convert whatever we can
-            if not one_exchange:
-                for from_cash in from_conv.values():
+            if not single_source_sufficient:
+                for from_cash in available.values():
                     if from_cash.amount_in(to_cash.currency) >= to_cash.amount:
                         # perform conversion
                         self.exchange_currency(

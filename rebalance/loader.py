@@ -25,7 +25,7 @@ def _make_session() -> requests.Session:
 
 
 def _build_asset(asset_config, session: requests.Session) -> Asset:
-    kwargs: dict = {"session": session}
+    kwargs: dict = {"session": session, "fractional": asset_config.fractional}
     if asset_config.nasdaq_nordic_id is not None:
         kwargs["nasdaq_nordic_id"] = asset_config.nasdaq_nordic_id
         kwargs["nasdaq_nordic_asset_class"] = asset_config.nasdaq_nordic_asset_class

@@ -19,6 +19,7 @@ class Asset:
         nasdaq_nordic_id=None,
         nasdaq_nordic_asset_class=None,
         name=None,
+        fractional=False,
     ):
         """
         Initialization.
@@ -26,19 +27,27 @@ class Asset:
         Args
         ----
         - ticker (str): Ticker of the asset.
-        - quantity (int, optional): Number of units of the asset. Default is zero.
+        - quantity (int or float, optional): Number of units of the asset. Must be an
+          integer when ``fractional=False`` (the default). Default is zero.
         - session (optional): Requests session passed to the Nasdaq Nordic
             fetcher. Not used for yfinance (which manages its own session).
         - nasdaq_nordic_id (str, optional): Nasdaq Nordic instrument ID (e.g. "TX4856348"). If provided, price is fetched from the Nasdaq Nordic API.
         - nasdaq_nordic_asset_class (str, optional): Asset class for Nasdaq Nordic API (e.g. "ETN/ETC", "ETF", "Share"). Required when nasdaq_nordic_id is set.
         - name (str, optional): Human-readable name of the asset. Default is None.
+        - fractional (bool, optional): When True, the asset supports fractional units
+          (e.g. mutual funds). Default is False.
         """
 
         assert ticker is not None, "ticker symbol is a mandatory argument."
-        assert isinstance(quantity, int), "quantity must be integer."
+        assert isinstance(quantity, (int, float)), "quantity must be numeric."
+        if not fractional:
+            assert quantity == int(quantity), (
+                "quantity must be integer for non-fractional assets."
+            )
 
         self._ticker = ticker
-        self._quantity = quantity
+        self._quantity = float(quantity)
+        self._fractional = fractional
         self._name = name
 
         if nasdaq_nordic_id is not None:
@@ -63,14 +72,23 @@ class Asset:
         return self._name
 
     @property
+    def fractional(self):
+        """(bool): Whether this asset supports fractional units."""
+        return self._fractional
+
+    @property
     def quantity(self):
-        """(int): Number of units of the asset."""
+        """(int | float): Number of units of the asset."""
         return self._quantity
 
     @quantity.setter
     def quantity(self, quantity):
-        assert isinstance(quantity, int), "quantity must be integer."
-        self._quantity = quantity
+        assert isinstance(quantity, (int, float)), "quantity must be numeric."
+        if not self._fractional:
+            assert quantity == int(quantity), (
+                "quantity must be integer for non-fractional assets."
+            )
+        self._quantity = float(quantity)
 
     @property
     def price(self):
@@ -163,4 +181,7 @@ class Asset:
     def __str__(self):
         # return yf.Ticker(
         #     self._ticker).info['shortName'] + " (" + self._ticker + ")"
-        return f"{self._ticker:4s}  {self._quantity:4d} {self.market_value():8.2f}"
+        qty = (
+            f"{self._quantity:.3f}" if self._fractional else f"{int(self._quantity):4d}"
+        )
+        return f"{self._ticker:4s}  {qty} {self.market_value():8.2f}"

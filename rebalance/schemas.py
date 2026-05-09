@@ -16,13 +16,23 @@ class CashConfig(BaseModel):
 
 class AssetConfig(BaseModel):
     ticker: str
-    quantity: int = 0
+    quantity: float = 0
+    fractional: bool = False
     target_allocation: float = Field(ge=0, le=100)
     name: str | None = None
     isin: str | None = None
     volatility: float | None = None
     nasdaq_nordic_id: str | None = None
     nasdaq_nordic_asset_class: str | None = None
+
+    @model_validator(mode="after")
+    def quantity_integer_when_not_fractional(self) -> "AssetConfig":
+        if not self.fractional and self.quantity != int(self.quantity):
+            raise ValueError(
+                f"non-fractional assets require an integer quantity, "
+                f"got {self.quantity} for ticker={self.ticker!r}"
+            )
+        return self
 
     @model_validator(mode="after")
     def nasdaq_fields_consistent(self) -> "AssetConfig":

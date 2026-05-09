@@ -252,3 +252,91 @@ class TestPortfolio(unittest.TestCase):
         # there should be none after rebalacing either
         # (i.e. amount converted to CAD should be the amount used to purchase CAD assets)
         self.assertAlmostEqual(p.cash["CAD"].amount, 0.0, 1)
+
+
+class TestMixedFractionalRebalancing(unittest.TestCase):
+    """Unit tests for mixed integer/fractional rebalancing using mocked prices."""
+
+    def _make_portfolio(self):
+        from unittest.mock import patch
+
+        from rebalance.asset import Asset
+        from rebalance.money import Price
+
+        p = Portfolio()
+        p.selling_allowed = False
+        p.common_currency = "USD"
+
+        with patch(
+            "rebalance.asset.fetch_yfinance_price", return_value=Price(100.0, "USD")
+        ):
+            # Two integer ETF assets
+            a1 = Asset("ETF_A", quantity=10)
+            a2 = Asset("ETF_B", quantity=5)
+            # One fractional mutual fund
+            a3 = Asset("FUND_C", quantity=2, fractional=True)
+
+        p.add_asset(a1)
+        p.add_asset(a2)
+        p.add_asset(a3)
+        p.add_cash(1000.0, "USD")
+        return p
+
+    def test_integer_assets_get_integer_units(self):
+        p = self._make_portfolio()
+        target = {"ETF_A": 40.0, "ETF_B": 30.0, "FUND_C": 30.0}
+        new_units, _, _, _ = p.rebalance(target)
+        assert isinstance(new_units["ETF_A"], int)
+        assert isinstance(new_units["ETF_B"], int)
+
+    def test_fractional_asset_gets_float_units(self):
+        p = self._make_portfolio()
+        target = {"ETF_A": 40.0, "ETF_B": 30.0, "FUND_C": 30.0}
+        new_units, _, _, _ = p.rebalance(target)
+        assert isinstance(new_units["FUND_C"], float)
+
+    def test_budget_not_exceeded(self):
+        p = self._make_portfolio()
+        # Capture cash before rebalance (portfolio is mutated in-place)
+        cash_before = p.cash_value("USD")
+        target = {"ETF_A": 40.0, "ETF_B": 30.0, "FUND_C": 30.0}
+        new_units, prices, _, _ = p.rebalance(target)
+        total_spend = sum(abs(new_units[t]) * prices[t][0] for t in new_units)
+        assert total_spend <= cash_before + 1e-4  # allow tiny float slack
+
+
+@pytest.mark.integration
+class TestSolverValidation(unittest.TestCase):
+    """Validates that the MIQP solver produces allocations close to what the old
+    SLSQP solver would have achieved. Tolerance is intentionally loose (5%) because
+    the MIQP is more exact — integer rounding differs — but both should land near
+    the target allocation."""
+
+    def _check_portfolio(self, json_path, tol_pct=5.0):
+        """Load a portfolio JSON, rebalance, and assert every asset's post-rebalance
+        allocation is within ``tol_pct`` percentage points of its target."""
+        import os
+
+        full_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "portfolios", json_path
+        )
+        from rebalance.loader import load_portfolio
+
+        portfolio, target_alloc = load_portfolio(full_path)
+        portfolio.rebalance(target_alloc, verbose=False)  # mutates portfolio in-place
+
+        actual_alloc = portfolio.asset_allocation()
+        for ticker, target_pct in target_alloc.items():
+            actual_pct = actual_alloc.get(ticker, 0.0)
+            diff = abs(actual_pct - target_pct)
+            self.assertLessEqual(
+                diff,
+                tol_pct,
+                msg=f"{ticker}: target={target_pct:.2f}% actual={actual_pct:.2f}% diff={diff:.2f}%",
+            )
+
+    def test_allweather_zino(self):
+        self._check_portfolio("allweather_zino.json")
+
+    def test_kids_allweather(self):
+        self._check_portfolio("kids_allweather.json")

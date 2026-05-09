@@ -59,6 +59,26 @@ class TestValidPortfolios:
         assert config.assets[0].isin is None
         assert config.assets[0].volatility is None
 
+    def test_fractional_defaults_to_false(self):
+        config = PortfolioConfig.model_validate(_valid_portfolio())
+        assert config.assets[0].fractional is False
+
+    def test_fractional_explicit_true(self):
+        data = _valid_portfolio(
+            assets=[
+                {
+                    "ticker": "XBB.TO",
+                    "quantity": 10,
+                    "target_allocation": 60.0,
+                    "fractional": True,
+                },
+                {"ticker": "XIC.TO", "quantity": 5, "target_allocation": 40.0},
+            ]
+        )
+        config = PortfolioConfig.model_validate(data)
+        assert config.assets[0].fractional is True
+        assert config.assets[1].fractional is False
+
     def test_optional_asset_fields_present(self):
         data = _valid_portfolio(
             assets=[
@@ -107,6 +127,32 @@ class TestAssetValidation:
         with pytest.raises(ValidationError) as exc_info:
             PortfolioConfig.model_validate(data)
         assert "nasdaq_nordic_asset_class" in str(exc_info.value)
+
+    def test_float_quantity_rejected_for_non_fractional_asset(self):
+        data = _valid_portfolio(
+            assets=[
+                {"ticker": "XBB.TO", "quantity": 10.5, "target_allocation": 60.0},
+                {"ticker": "XIC.TO", "quantity": 5, "target_allocation": 40.0},
+            ]
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            PortfolioConfig.model_validate(data)
+        assert "integer" in str(exc_info.value)
+
+    def test_float_quantity_accepted_for_fractional_asset(self):
+        data = _valid_portfolio(
+            assets=[
+                {
+                    "ticker": "XBB.TO",
+                    "quantity": 10.5,
+                    "fractional": True,
+                    "target_allocation": 60.0,
+                },
+                {"ticker": "XIC.TO", "quantity": 5, "target_allocation": 40.0},
+            ]
+        )
+        config = PortfolioConfig.model_validate(data)
+        assert config.assets[0].quantity == pytest.approx(10.5)
 
 
 class TestPortfolioValidation:
