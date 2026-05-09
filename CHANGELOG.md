@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/kallegrens/rebalance/compare/v0.3.0...v0.3.1) (2026-05-09)
+
+
+### Documentation
+
+* replace README.rst with README.md (RST raw directives rejected by PyPI) ([e7da7e6](https://github.com/kallegrens/rebalance/commit/e7da7e67a8a74f434fdfb74935ba3263970511a8))
+
 ## [0.3.0](https://github.com/kallegrens/rebalance/compare/v0.2.0...v0.3.0) (2026-05-09)
 
 
