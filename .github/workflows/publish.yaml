@@ -1,0 +1,128 @@
+---
+name: Publish to PyPI
+
+"on":
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# Deny all permissions by default for security
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    # Grant minimal permissions required for PyPI trusted publishing
+    permissions:
+      actions: read # Required for SBOM action to find workflow artifacts when attaching release assets
+      contents: write # Required to upload release artifacts
+      id-token: write # Required for trusted publishing
+      attestations: write # Required for generating attestations
+    environment:
+      name: pypi
+      url: https://pypi.org/p/rebalance
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+        with:
+          version: "latest"
+          enable-cache: false # avoids cache poisoning upon build and publish
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Build package
+        run: uv run just build
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum ./* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          path: ./
+          artifact-name: sbom.spdx.json
+          output-file: dist/sbom.spdx.json
+          format: spdx-json
+          upload-artifact: true
+          upload-release-assets: false
+          dependency-snapshot: true
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
+        with:
+          subject-path: "dist/*.whl"
+          sbom-path: "dist/sbom.spdx.json"
+
+      - name: Generate build provenance attestations
+        id: attest
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: "dist/*"
+
+      - name: Publish to PyPI with trusted publishing
+        run: uv publish
+
+      - name: Capture build metadata
+        id: build-meta
+        run: |
+          {
+            echo "python_version=$(uv run python --version | cut -d' ' -f2)"
+            echo "uv_version=$(uv --version | cut -d' ' -f2)"
+            echo "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
+          PYTHON_VERSION: ${{ steps.build-meta.outputs.python_version }}
+          UV_VERSION: ${{ steps.build-meta.outputs.uv_version }}
+          BUILD_TIME: ${{ steps.build-meta.outputs.build_time }}
+        run: |
+          # Preserve existing release notes from release-please
+          gh release view "$GITHUB_REF_NAME" --json body --jq '.body // ""' \
+            > /tmp/release-notes.md
+
+          # Append build metadata and verification instructions
+          cat >> /tmp/release-notes.md << EOF
+
+          ---
+
+          ### Build Information
+          - **Python:** ${PYTHON_VERSION}
+          - **uv:** ${UV_VERSION}
+          - **Built:** ${BUILD_TIME}
+          - **Commit:** ${GITHUB_SHA}
+
+          ### Verification
+
+          This release includes [SLSA Build Level 3](https://slsa.dev/spec/v1.0/levels) attestations.
+
+          \`\`\`bash
+          gh attestation verify rebalance-*.whl --owner ${GITHUB_REPOSITORY_OWNER}
+          gh attestation verify rebalance-*.whl --owner ${GITHUB_REPOSITORY_OWNER} --sbom
+          \`\`\`
+
+          View SLSA Provenance: ${ATTESTATION_URL}
+          EOF
+
+          gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/*.whl dist/*.tar.gz dist/sbom.spdx.json dist/SHA256SUMS LICENSE

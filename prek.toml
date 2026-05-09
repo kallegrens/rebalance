@@ -1,19 +1,83 @@
 [[repos]]
-repo = "local"
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+# renovate: datasource=github-tags depName=pre-commit/pre-commit-hooks
+rev = "v6.0.0"
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+
+[[repos.hooks]]
+id = "check-yaml"
+
+[[repos.hooks]]
+id = "check-toml"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+args = ["--maxkb=5000"]
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+
+[[repos.hooks]]
+id = "check-case-conflict"
+
+[[repos.hooks]]
+id = "mixed-line-ending"
+
+[[repos]]
+repo = "https://github.com/astral-sh/uv-pre-commit"
+# renovate: datasource=github-tags depName=astral-sh/uv-pre-commit
+rev = "0.11.8"
+
+[[repos.hooks]]
+id = "uv-lock"
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+# renovate: datasource=github-tags depName=astral-sh/ruff-pre-commit
+rev = "v0.15.12"
 
 [[repos.hooks]]
 id = "ruff-check"
-name = "ruff lint"
-language = "system"
-entry = "uv run ruff check --fix"
-files = "\\.py$"
+args = ["--fix"]
 
 [[repos.hooks]]
 id = "ruff-format"
-name = "ruff format"
-language = "system"
-entry = "uv run ruff format"
-files = "\\.py$"
+
+[[repos]]
+repo = "https://github.com/adrienverge/yamllint"
+# renovate: datasource=github-tags depName=adrienverge/yamllint
+rev = "v1.38.0"
+
+[[repos.hooks]]
+id = "yamllint"
+args = ["-c=.yamllint.yaml"]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+# renovate: datasource=github-tags depName=rhysd/actionlint
+rev = "v1.7.12"
+
+[[repos.hooks]]
+id = "actionlint-docker"
+files = '^(\.github/workflows/.*\.ya?ml|action\.ya?ml)$'
+
+[[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+# renovate: datasource=github-tags depName=zizmorcore/zizmor-pre-commit
+rev = "v1.24.1"
+
+[[repos.hooks]]
+id = "zizmor"
+args = ["--fix", "--pedantic"]
+files = '^(\.github/workflows/.*\.ya?ml|action\.ya?ml)$'
+
+[[repos]]
+repo = "local"
 
 [[repos.hooks]]
 id = "ty"

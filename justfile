@@ -9,17 +9,20 @@ test-fast:
 coverage:
     uv run pytest rebalance/tests/ --cov=rebalance --cov-report=html
 
+test-cov:
+    uv run pytest rebalance/tests/ -v --cov=rebalance --cov-report=xml --cov-report=term-missing
+
+build:
+    uv build
+
 lint:
-    uv run ruff check rebalance/
+    prek run --all-files
 
 fmt:
     uv run ruff format rebalance/
 
 typecheck:
     uv run ty check
-
-hooks:
-    prek run --all-files
 
 run portfolio:
     uv run rebalance {{ portfolio }} --verbose
