@@ -1,7 +1,7 @@
 Rebalance
 =========
 
-|Build status| |Coverage| |Code Factor| |Docs| 
+|Build status| |Coverage| |Code Factor| |Docs|
 
 A calculator which tells you how to split your investment amongst your portfolio's assets based on your target asset allocation.
 
@@ -76,9 +76,9 @@ To use it, install the package and write a driver file as described below.
                     <h3 class="ui header">Then we add our assets:</h3>
                     <p> We must specify the ticker symbol and the quantity of each asset we currently have in our portfolio.</p>
 		    <p></p>
-		    <i>The portfolio used in this example is one of 
+		    <i>The portfolio used in this example is one of
 		    	<a href="https://www.canadianportfoliomanagerblog.com/model-etf-portfolios/">
-		    	Canadian Portfolio Manager</a>'s model portfolios. This blog along with 
+		    	Canadian Portfolio Manager</a>'s model portfolios. This blog along with
 		    	<a href="https://canadiancouchpotato.com/getting-started/">Canadian Couch Potato</a>
 			advocate low-cost, globally diversified index funds for DIY investors. </i>
 
@@ -156,7 +156,7 @@ To use it, install the package and write a driver file as described below.
      Remaining cash:
          80.32 USD.
          0.00 CAD.
-	
+
 .. raw:: html
 
         </div>
@@ -165,7 +165,7 @@ To use it, install the package and write a driver file as described below.
 
 .. |Build Status| image:: https://travis-ci.org/siavashadpey/rebalance.svg?branch=master
 	:target: https://travis-ci.org/siavashadpey/rebalance.svg?branch=master
-	
+
 .. |Coverage| image:: https://coveralls.io/repos/github/siavashadpey/rebalance/badge.svg?branch=master
 	:target: https://coveralls.io/repos/github/siavashadpey/rebalance/badge.svg?branch=master
 
