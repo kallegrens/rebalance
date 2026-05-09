@@ -128,4 +128,4 @@ jobs:
 
           gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
           gh release upload "$GITHUB_REF_NAME" \
-            dist/*.whl dist/*.tar.gz dist/sbom.spdx.json dist/SHA256SUMS LICENSE
+            dist/*.whl dist/*.tar.gz dist/sbom.spdx.json dist/SHA256SUMS
