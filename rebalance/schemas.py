@@ -48,6 +48,7 @@ class PortfolioConfig(BaseModel):
     name: str
     selling_allowed: bool = False
     common_currency: str = "EUR"
+    conversion_cost: float = Field(default=0.0, ge=0.0, lt=100.0)
     cash: list[CashConfig] = []
     assets: list[AssetConfig] = Field(min_length=1)
 

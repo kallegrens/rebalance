@@ -39,6 +39,7 @@ class Portfolio:
         self._cash = {}
         self._is_selling_allowed = False
         self._common_currency = "EUR"
+        self._conversion_cost = 0.0
 
     @property
     def common_currency(self):
@@ -50,6 +51,19 @@ class Portfolio:
     @common_currency.setter
     def common_currency(self, currency):
         self._common_currency = currency.upper()
+
+    @property
+    def conversion_cost(self):
+        """
+        float: Currency conversion cost as a fraction (e.g. 0.0025 for 0.25%).
+        Applied when buying or selling assets denominated in a currency other than
+        the common currency (e.g. Nordnet's 0.25% FX spread).
+        """
+        return self._conversion_cost
+
+    @conversion_cost.setter
+    def conversion_cost(self, cost):
+        self._conversion_cost = float(cost)
 
     @property
     def cash(self):
@@ -226,7 +240,19 @@ class Portfolio:
 
         asset = self.assets[ticker]
         cost = asset.buy(quantity)
-        self.add_cash(-cost, asset.currency)
+        if (
+            self._conversion_cost > 0
+            and asset.currency.upper() != self._common_currency.upper()
+        ):
+            # Nordnet auto-converts between SEK and the asset's currency.
+            # Buying costs an extra fee_fraction; selling returns fee_fraction less.
+            fx = Cash(1, asset.currency).exchange_rate(self._common_currency)
+            fee_factor = (
+                1 + self._conversion_cost if cost >= 0 else 1 - self._conversion_cost
+            )
+            self.add_cash(-cost * fx * fee_factor, self._common_currency)
+        else:
+            self.add_cash(-cost, asset.currency)
         return cost
 
     def exchange_currency(
@@ -416,8 +442,14 @@ class Portfolio:
                     )
 
             _console.print("\nRemaining cash:")
-            for cash in balanced_portfolio.cash.values():
-                _console.print(f"  {cash.amount:,.0f} {cash.currency}")
+            if balanced_portfolio._conversion_cost > 0:
+                common = balanced_portfolio._common_currency
+                _console.print(
+                    f"  {balanced_portfolio.cash[common].amount:,.0f} {common}"
+                )
+            else:
+                for cash in balanced_portfolio.cash.values():
+                    _console.print(f"  {cash.amount:,.0f} {cash.currency}")
 
         # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)

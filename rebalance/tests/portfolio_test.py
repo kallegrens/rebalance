@@ -1,10 +1,12 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import yfinance as yf
 
 from rebalance import Asset, Cash, Portfolio
+from rebalance.money import Price
 
 
 @pytest.mark.integration
@@ -258,10 +260,8 @@ class TestMixedFractionalRebalancing(unittest.TestCase):
     """Unit tests for mixed integer/fractional rebalancing using mocked prices."""
 
     def _make_portfolio(self):
-        from unittest.mock import patch
 
         from rebalance.asset import Asset
-        from rebalance.money import Price
 
         p = Portfolio()
         p.selling_allowed = False
@@ -336,7 +336,110 @@ class TestSolverValidation(unittest.TestCase):
             )
 
     def test_allweather_zino(self):
-        self._check_portfolio("allweather_zino.json")
+        self._check_portfolio("allweather_zino_redacted.json")
 
-    def test_kids_allweather(self):
-        self._check_portfolio("kids_allweather.json")
+
+class TestConversionCost:
+    """Unit tests for Nordnet-style FX fee (0.25% on each non-SEK transaction).
+
+    All prices and FX rates are mocked so these run without network access:
+      - yfinance assets → Price(100.0, "USD"), FX rates all 1.0
+      - nasdaq_nordic assets → Price(150.0, "SEK")
+    """
+
+    def test_buy_non_sek_deducts_sek_with_fee(self, mock_price_fetchers):
+        """Buying a USD asset deducts SEK = cost * fx * (1 + fee), never touches USD cash."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.0025
+        p.add_cash(2000.0, "SEK")
+        p.add_asset(Asset("ETF", quantity=0))
+
+        p.buy_asset("ETF", 5)
+
+        # cost = 5 * 100 = 500 USD → deduct 500 * 1.0 * 1.0025 = 501.25 SEK
+        assert p.cash["SEK"].amount == pytest.approx(2000.0 - 501.25)
+        assert "USD" not in p.cash
+
+    def test_sell_non_sek_credits_sek_with_fee_reduction(self, mock_price_fetchers):
+        """Selling a USD asset credits SEK = |cost| * fx * (1 - fee), never touches USD cash."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.0025
+        p.add_cash(2000.0, "SEK")
+        p.add_asset(Asset("ETF", quantity=10))
+
+        p.buy_asset("ETF", -5)
+
+        # cost = -500 USD → add -(-500) * 1.0 * 0.9975 = 498.75 SEK
+        assert p.cash["SEK"].amount == pytest.approx(2000.0 + 498.75)
+        assert "USD" not in p.cash
+
+    def test_buy_sek_asset_no_fee_applied(self, mock_price_fetchers):
+        """Buying a SEK-denominated asset deducts SEK directly — no conversion fee."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.0025
+        p.add_cash(2000.0, "SEK")
+        p.add_asset(
+            Asset(
+                "VIR10SEK",
+                quantity=0,
+                nasdaq_nordic_id="TX4856348",
+                nasdaq_nordic_asset_class="ETN/ETC",
+            )
+        )
+
+        p.buy_asset("VIR10SEK", 5)
+
+        # cost = 5 * 150 = 750 SEK; currency == common_currency → no fee
+        assert p.cash["SEK"].amount == pytest.approx(2000.0 - 750.0)
+
+    def test_no_conversion_cost_uses_native_currency(self, mock_price_fetchers):
+        """Without conversion_cost (default 0), buying a USD asset deducts from USD cash."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        # conversion_cost defaults to 0.0
+        p.add_cash(2000.0, "SEK")
+        p.add_cash(1000.0, "USD")
+        p.add_asset(Asset("ETF", quantity=0))
+
+        p.buy_asset("ETF", 5)
+
+        # cost = 500 USD → deducted from USD, SEK untouched
+        assert p.cash["USD"].amount == pytest.approx(1000.0 - 500.0)
+        assert p.cash["SEK"].amount == pytest.approx(2000.0)
+
+    def test_rebalance_only_sek_remains(self, mock_price_fetchers):
+        """After rebalancing with conversion_cost > 0, only SEK cash bucket exists."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.0025
+        p.add_cash(2000.0, "SEK")
+        p.add_asset(Asset("ETF_A", quantity=0))
+        p.add_asset(Asset("ETF_B", quantity=0))
+
+        p.rebalance({"ETF_A": 50.0, "ETF_B": 50.0})
+
+        assert "USD" not in p.cash
+        assert p.cash["SEK"].amount >= 0
+
+    def test_rebalance_budget_not_exceeded_with_fee(self, mock_price_fetchers):
+        """Total SEK spent (units * price_in_SEK * (1 + fee)) must not exceed initial cash."""
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.0025
+        initial_sek = 1000.0
+        p.add_cash(initial_sek, "SEK")
+        p.add_asset(Asset("ETF_A", quantity=0))
+        p.add_asset(Asset("ETF_B", quantity=0))
+
+        new_units, prices, _, _ = p.rebalance({"ETF_A": 50.0, "ETF_B": 50.0})
+
+        # Each non-SEK purchase costs price * units * (1 + fee) in SEK
+        fee = p.conversion_cost
+        sek_spent = sum(
+            max(0, new_units[t]) * prices[t][0] * (1 + fee) for t in new_units
+        )
+        assert sek_spent <= initial_sek + 1e-4  # allow tiny float slack
+        assert p.cash["SEK"].amount >= -1e-4

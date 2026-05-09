@@ -261,3 +261,37 @@ class TestLoadPortfolio:
         path.write_text(json.dumps(bad))
         with pytest.raises(ValidationError):
             load_portfolio(str(path))
+
+
+class TestConversionCostSchema:
+    def test_defaults_to_zero(self):
+        config = PortfolioConfig.model_validate(_valid_portfolio())
+        assert config.conversion_cost == 0.0
+
+    def test_valid_value_accepted(self):
+        config = PortfolioConfig.model_validate(_valid_portfolio(conversion_cost=0.25))
+        assert config.conversion_cost == pytest.approx(0.25)
+
+    def test_negative_rejected(self):
+        with pytest.raises(ValidationError):
+            PortfolioConfig.model_validate(_valid_portfolio(conversion_cost=-0.1))
+
+    def test_hundred_or_above_rejected(self):
+        with pytest.raises(ValidationError):
+            PortfolioConfig.model_validate(_valid_portfolio(conversion_cost=100.0))
+
+
+class TestConversionCostLoader:
+    def test_loaded_as_fraction(self, mock_price_fetchers, tmp_path):
+        """conversion_cost=0.25 in JSON should become 0.0025 on the Portfolio object."""
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio(conversion_cost=0.25)))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.conversion_cost == pytest.approx(0.0025)
+
+    def test_defaults_to_zero_fraction(self, mock_price_fetchers, tmp_path):
+        """Omitting conversion_cost from JSON should leave it at 0.0 on the Portfolio."""
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio()))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.conversion_cost == 0.0

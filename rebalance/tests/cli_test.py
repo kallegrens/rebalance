@@ -63,7 +63,7 @@ class TestCLIIntegration:
                 sys.executable,
                 "-m",
                 "rebalance",
-                str(project_root / "portfolios" / "example.json"),
+                str(project_root / "portfolios" / "allweather_zino_redacted.json"),
             ],
             capture_output=True,
             text=True,
@@ -77,7 +77,7 @@ class TestCLIIntegration:
                 sys.executable,
                 "-m",
                 "rebalance",
-                str(project_root / "portfolios" / "example.json"),
+                str(project_root / "portfolios" / "allweather_zino_redacted.json"),
                 "--verbose",
             ],
             capture_output=True,
@@ -85,4 +85,4 @@ class TestCLIIntegration:
             cwd=str(project_root),
         )
         assert result.returncode == 0, result.stderr
-        assert "Ticker" in result.stdout
+        assert "Name" in result.stdout

@@ -66,8 +66,15 @@ def rebalance(portfolio, target_allocation):
     # Since we might have sold all assets for the rebalancing calculation, revert back
     balanced_portfolio._assets = copy.deepcopy(portfolio.assets)
 
-    # Make necessary currency conversions
-    exchange_history = balanced_portfolio._smart_exchange(currency_cost)
+    # Make necessary currency conversions.
+    # When a conversion_cost is set, the broker (e.g. Nordnet) handles FX
+    # automatically and charges the fee at execution time; buy_asset() already
+    # accounts for this by deducting from the common currency directly.
+    conversion_cost = getattr(portfolio, "_conversion_cost", 0.0)
+    if conversion_cost > 0:
+        exchange_history = []
+    else:
+        exchange_history = balanced_portfolio._smart_exchange(currency_cost)
 
     # Buy new units
     prices = {}
@@ -137,9 +144,20 @@ def rebalance_optimizer(portfolio, target_alloc):
     ]
     objective = cp.Minimize(cp.norm1(cp.hstack(residuals)))
 
-    # Budget constraint: total spend ≤ available cash
+    # Budget constraint: total spend ≤ available cash.
+    # For non-common-currency assets, Nordnet auto-converts SEK at a cost of
+    # conversion_cost fraction both when buying (extra paid) and selling
+    # (less returned). Model this as an additional fee on |shares| for those assets.
     spend = sum(float(prices[i]) * share_vars[i] for i in range(n))
-    constraints = [spend <= total_cash]
+    conversion_cost = getattr(portfolio, "_conversion_cost", 0.0)
+    fee_term = 0
+    if conversion_cost > 0:
+        for i, ticker in enumerate(tickers):
+            if portfolio.assets[ticker].currency.upper() != common_currency.upper():
+                fee_term = fee_term + conversion_cost * float(prices[i]) * cp.abs(
+                    share_vars[i]
+                )
+    constraints = [spend + fee_term <= total_cash]
 
     # Per-asset bounds
     for i, ticker in enumerate(tickers):

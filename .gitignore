@@ -49,8 +49,10 @@ htmlcov
 *.pot
 
 # Portfolio data (contains personal financial positions)
-portfolios/*.json
-!portfolios/example.json
+portfolios/
+# Portfolio files with real holdings (use *_redacted.json for CI)
+portfolios/allweather_zino.json
+!portfolios/allweather_zino_redacted.json
 
 # Downloaded market data
 *.csv
