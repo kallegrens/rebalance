@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/kallegrens/rebalance/compare/v0.3.1...v0.4.0) (2026-05-09)
+
+
+### Features
+
+* initial release ([243a06d](https://github.com/kallegrens/rebalance/commit/243a06d3545f5437615dd780af26299e2e4a6363))
+
 ## [0.3.1](https://github.com/kallegrens/rebalance/compare/v0.3.0...v0.3.1) (2026-05-09)
 
 
