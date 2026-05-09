@@ -44,6 +44,9 @@ jobs:
             "https://github.com/j178/prek/releases/download/v${PREK_VERSION}/prek-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C /usr/local/bin prek
 
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
       - name: Run linters
         run: uv run just lint
 

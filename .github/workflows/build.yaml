@@ -34,7 +34,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --group dev
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       - name: Build package
         run: uv run just build
