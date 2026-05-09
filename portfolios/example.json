@@ -1,0 +1,15 @@
+{
+  "name": "example",
+  "selling_allowed": false,
+  "cash": [
+    {"amount": 3000.0, "currency": "USD"},
+    {"amount": 200.0, "currency": "CAD"}
+  ],
+  "assets": [
+    {"ticker": "XBB.TO", "quantity": 36, "target_allocation": 20},
+    {"ticker": "XIC.TO", "quantity": 64, "target_allocation": 20},
+    {"ticker": "ITOT",   "quantity": 32, "target_allocation": 36},
+    {"ticker": "IEFA",   "quantity": 8,  "target_allocation": 20},
+    {"ticker": "IEMG",   "quantity": 7,  "target_allocation": 4}
+  ]
+}

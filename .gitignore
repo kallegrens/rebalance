@@ -50,6 +50,7 @@ htmlcov
 
 # Portfolio data (contains personal financial positions)
 portfolios/*.json
+!portfolios/example.json
 
 # Downloaded market data
 *.csv
