@@ -1,4 +1,4 @@
-__version__ = "0.1"
+__version__ = "0.1.0"
 
 from .asset import Asset as Asset
 from .money import Cash as Cash
