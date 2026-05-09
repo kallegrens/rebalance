@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/kallegrens/rebalance/compare/v0.4.0...v0.5.0) (2026-05-09)
+
+
+### Features
+
+* model Nordnet 0.25% FX conversion cost for non-SEK assets ([9441002](https://github.com/kallegrens/rebalance/commit/944100238197cf506ef55884df86fe270a08489e))
+* replace SLSQP solver with MILP (cvxpy+HiGHS) and add fractional asset support ([adf2d1e](https://github.com/kallegrens/rebalance/commit/adf2d1e2222de00b5f47cb0775010331f17c2ab5))
+
 ## [0.4.0](https://github.com/kallegrens/rebalance/compare/v0.3.1...v0.4.0) (2026-05-09)
 
 
