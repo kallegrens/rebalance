@@ -16,6 +16,25 @@ pip install rebalance
 rebalance portfolios/my_portfolio.json
 ```
 
+## Band-aware monitoring
+
+The monitor command checks configured volatility bands using the total portfolio
+value, including cash. Additions and withdrawals should therefore be represented
+in the portfolio cash before running the monitor.
+
+When a band rebalance is triggered, assets with a `0` target allocation are sold
+to zero and their proceeds become buy capacity. New positive-target assets aim
+for their JSON target, triggered assets aim for their band tolerance midpoint,
+and non-triggered existing assets are frozen by default to avoid unnecessary
+trades. Any residual target budget is spread only across tradable positive-target
+assets; frozen non-triggered assets stay frozen. If the tradable assets cannot
+use all available cash without leaving their bands, the remainder stays as cash.
+
+```bash
+rebalance-monitor portfolios/my_portfolio.json
+rebalance-monitor portfolios/my_portfolio.json --trade-non-triggered
+```
+
 ## Portfolio file format
 
 Create a JSON file describing your portfolio:
@@ -40,7 +59,7 @@ Create a JSON file describing your portfolio:
 
 ## Example output
 
-```
+```text
  Ticker      Ask     Quantity      Amount    Currency     Old allocation   New allocation     Target allocation
                       to buy         ($)                      (%)              (%)                 (%)
 ---------------------------------------------------------------------------------------------------------------

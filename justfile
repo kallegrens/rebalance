@@ -15,6 +15,8 @@ test-cov:
 build:
     uv build
 
+check: fmt lint typecheck test
+
 lint:
     prek run --all-files
 

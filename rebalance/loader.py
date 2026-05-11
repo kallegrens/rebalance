@@ -75,3 +75,18 @@ def load_portfolio(json_path: str) -> tuple:
         "Portfolio loaded: {} assets, {} cash positions", len(assets), len(config.cash)
     )
     return p, target_allocation
+
+
+def load_portfolio_config(json_path: str) -> PortfolioConfig:
+    """Load and validate a PortfolioConfig from a JSON file without fetching prices.
+
+    Useful when only the configuration metadata (e.g. per-asset volatilities)
+    is needed without the overhead of price fetching.
+
+    Raises:
+        pydantic.ValidationError: if the JSON does not match the expected schema.
+        FileNotFoundError: if the JSON file does not exist.
+    """
+    with open(json_path, encoding="utf-8") as f:
+        data = json.load(f)
+    return PortfolioConfig.model_validate(data)

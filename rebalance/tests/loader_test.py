@@ -188,9 +188,8 @@ class TestPortfolioValidation:
 class TestCashValidation:
     def test_negative_amount(self):
         data = _valid_portfolio(cash=[{"amount": -100.0, "currency": "USD"}])
-        with pytest.raises(ValidationError) as exc_info:
-            PortfolioConfig.model_validate(data)
-        assert "amount" in str(exc_info.value)
+        config = PortfolioConfig.model_validate(data)
+        assert config.cash[0].amount == -100.0
 
     def test_currency_too_long(self):
         data = _valid_portfolio(cash=[{"amount": 100.0, "currency": "USDD"}])

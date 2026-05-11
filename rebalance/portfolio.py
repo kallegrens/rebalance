@@ -7,6 +7,13 @@ from rich.table import Table
 
 from . import rebalancing_helper
 from .asset import Asset
+from .band_rendering import render_band_rebalance_table
+from .band_targets import (
+    RebalancePlan,
+    build_band_rebalance_plan,
+    build_rebalance_plan,
+    cash_inclusive_allocation,
+)
 from .money import Cash
 
 _console = Console()
@@ -298,38 +305,8 @@ class Portfolio:
         assert from_amount is not None
         self.add_cash(-from_amount, from_currency)
 
-    def rebalance(self, target_allocation, verbose=False):
-        """
-        Rebalances the portfolio using the specified target allocation, the portfolio's current allocation,
-        and the available cash.
-
-        Args:
-            target_allocation (Dict[str, float]): Target asset allocation of the portfolio (in %). The keys of the dictionary are the tickers of the assets.
-            verbose (bool, optional): Verbosity flag. Default is False.
-
-        Returns:
-            (tuple): tuple containing:
-                * new_units (Dict[str, int]): Units of each asset to buy. The keys of the dictionary are the tickers of the assets.
-                * prices (Dict[str, [float, str]]): The keys of the dictionary are the tickers of the assets. Each value of the dictionary is a 2-entry list. The first entry is the price of the asset during the rebalancing computation. The second entry is the currency of the asset.
-                * exchange_rates (Dict[str, float]): The keys of the dictionary are currencies. Each value is the exchange rate to USD during the rebalancing computation.
-                * max_diff (float): Largest difference between target allocation and optimized asset allocation.
-        """
-
-        # order target_allocation dict in the same order as assets dict and upper key
-        logger.info("Rebalancing portfolio ({} assets)", len(self._assets))
-        target_allocation_reordered = {}
-        try:
-            for key in self.assets:
-                target_allocation_reordered[key] = target_allocation[key]
-        except KeyError as err:
-            raise Exception(
-                "'target_allocation not compatible with the assets of the portfolio."
-            ) from err
-
-        target_allocation_np = np.fromiter(
-            target_allocation_reordered.values(), dtype=float
-        )
-
+    def _validate_target_total(self, target_allocation):
+        target_allocation_np = np.fromiter(target_allocation.values(), dtype=float)
         target_total = np.sum(target_allocation_np)
 
         if float(target_total) != 100.0:
@@ -339,15 +316,151 @@ class Portfolio:
                 target_total,
             )
 
-        # offload heavy work
-        (balanced_portfolio, new_units, prices, cost, exchange_history) = (
-            rebalancing_helper.rebalance(self, target_allocation_reordered)
+        return target_allocation_np
+
+    def _render_rebalance_table(
+        self,
+        balanced_portfolio,
+        new_units,
+        prices,
+        cost,
+        exchange_history,
+        old_allocation,
+        new_allocation,
+        target_allocation,
+        largest_discrepancy,
+    ):
+        show_names = any(a.name is not None for a in balanced_portfolio.assets.values())
+
+        table = Table(show_header=True, header_style="bold")
+        if show_names:
+            table.add_column("Name", max_width=35, no_wrap=True, overflow="ellipsis")
+        else:
+            table.add_column("Ticker")
+        table.add_column("Price", justify="right")
+        table.add_column("Δ Units", justify="right")
+        table.add_column("Amount", justify="right")
+        table.add_column("CCY")
+        table.add_column("Old %", justify="right")
+        table.add_column("New %", justify="right")
+        table.add_column("Target %", justify="right")
+
+        for ticker in balanced_portfolio.assets:
+            is_winding_down = target_allocation[ticker] == 0.0
+            row_style = "dim" if is_winding_down else ""
+
+            qty = new_units[ticker]
+            amt = cost[ticker]
+            qty_fmt = f"{qty:,d}" if isinstance(qty, int) else f"{qty:,.2f}"
+            if qty > 0:
+                qty_str = f"[green]{qty_fmt}[/green]"
+                amt_str = f"[green]{amt:,.0f}[/green]"
+            elif qty < 0:
+                qty_str = f"[red]{qty_fmt}[/red]"
+                amt_str = f"[red]{amt:,.0f}[/red]"
+            else:
+                qty_str = f"[dim]{qty_fmt}[/dim]"
+                amt_str = f"[dim]{amt:,.0f}[/dim]"
+
+            new_a = new_allocation[ticker]
+            tgt_a = target_allocation[ticker]
+            new_alloc_str = (
+                f"[yellow]{new_a:.2f}[/yellow]"
+                if abs(new_a - tgt_a) > 0.5
+                else f"{new_a:.2f}"
+            )
+
+            asset_label = (
+                balanced_portfolio.assets[ticker].name or ticker
+                if show_names
+                else ticker
+            )
+            row = [asset_label]
+            row += [
+                f"{prices[ticker][0]:,.2f}",
+                qty_str,
+                amt_str,
+                prices[ticker][1],
+                f"{old_allocation[ticker]:.2f}",
+                new_alloc_str,
+                f"{tgt_a:.2f}",
+            ]
+            table.add_row(*row, style=row_style)
+
+        _console.print()
+        _console.print(table)
+        _console.print(
+            "Largest discrepancy between new and target allocation: "
+            f"[bold]{largest_discrepancy:.2f}%[/bold]"
         )
 
-        # compute old and new asset allocation
-        # and largest diff between new and target asset allocation
+        if exchange_history:
+            noun = "conversions are" if len(exchange_history) > 1 else "conversion is"
+            _console.print(
+                f"\nBefore making the above purchases, the following currency {noun} required:"
+            )
+            for (
+                from_amount,
+                from_currency,
+                to_amount,
+                to_currency,
+                rate,
+            ) in exchange_history:
+                _console.print(
+                    f"  {from_amount:.0f} {from_currency} → {to_amount:.0f} {to_currency} "
+                    f"at a rate of {rate:.4f}"
+                )
+
+        _console.print("\nRemaining cash:")
+        if balanced_portfolio._conversion_cost > 0:
+            common = balanced_portfolio._common_currency
+            _console.print(f"  {balanced_portfolio.cash[common].amount:,.0f} {common}")
+        else:
+            for cash in balanced_portfolio.cash.values():
+                _console.print(f"  {cash.amount:,.0f} {cash.currency}")
+
+    def _execute_rebalance_plan(
+        self,
+        plan: RebalancePlan,
+        *,
+        original_targets,
+        verbose,
+        objective,
+        band_mode,
+    ):
+        balanced_portfolio, new_units, prices, cost, exchange_history = (
+            rebalancing_helper.rebalance(
+                self,
+                plan.effective_targets,
+                sellable_tickers=plan.sellable_tickers,
+                band_limits=plan.band_limits,
+                locked_tickers=plan.locked_tickers,
+                forced_trades=plan.forced_trades,
+                objective=objective,
+            )
+        )
+
+        if band_mode:
+            new_allocation = cash_inclusive_allocation(balanced_portfolio)
+            if verbose:
+                render_band_rebalance_table(
+                    balanced_portfolio,
+                    new_units,
+                    prices,
+                    cost,
+                    exchange_history,
+                    new_allocation,
+                    original_targets,
+                    plan,
+                )
+
+            self.__dict__.update(balanced_portfolio.__dict__)
+            logger.info("Band rebalancing complete")
+            return (new_units, prices, exchange_history)
+
         old_allocation = self.asset_allocation()
         new_allocation = balanced_portfolio.asset_allocation()
+        target_allocation_np = self._validate_target_total(plan.effective_targets)
         largest_discrepancy = max(
             abs(
                 target_allocation_np - np.fromiter(new_allocation.values(), dtype=float)
@@ -355,109 +468,106 @@ class Portfolio:
         )
 
         if verbose:
-            show_names = any(
-                a.name is not None for a in balanced_portfolio.assets.values()
+            self._render_rebalance_table(
+                balanced_portfolio,
+                new_units,
+                prices,
+                cost,
+                exchange_history,
+                old_allocation,
+                new_allocation,
+                original_targets,
+                largest_discrepancy,
             )
 
-            table = Table(show_header=True, header_style="bold")
-            if show_names:
-                table.add_column(
-                    "Name", max_width=35, no_wrap=True, overflow="ellipsis"
-                )
-            else:
-                table.add_column("Ticker")
-            table.add_column("Price", justify="right")
-            table.add_column("Δ Units", justify="right")
-            table.add_column("Amount", justify="right")
-            table.add_column("CCY")
-            table.add_column("Old %", justify="right")
-            table.add_column("New %", justify="right")
-            table.add_column("Target %", justify="right")
-
-            for ticker in balanced_portfolio.assets:
-                is_winding_down = target_allocation[ticker] == 0.0
-                row_style = "dim" if is_winding_down else ""
-
-                qty = new_units[ticker]
-                amt = cost[ticker]
-                qty_fmt = f"{qty:,d}" if isinstance(qty, int) else f"{qty:,.3f}"
-                if qty > 0:
-                    qty_str = f"[green]{qty_fmt}[/green]"
-                    amt_str = f"[green]{amt:,.0f}[/green]"
-                elif qty < 0:
-                    qty_str = f"[red]{qty_fmt}[/red]"
-                    amt_str = f"[red]{amt:,.0f}[/red]"
-                else:
-                    qty_str = f"[dim]{qty_fmt}[/dim]"
-                    amt_str = f"[dim]{amt:,.0f}[/dim]"
-
-                new_a = new_allocation[ticker]
-                tgt_a = target_allocation[ticker]
-                new_alloc_str = (
-                    f"[yellow]{new_a:.2f}[/yellow]"
-                    if abs(new_a - tgt_a) > 0.5
-                    else f"{new_a:.2f}"
-                )
-
-                asset_label = (
-                    balanced_portfolio.assets[ticker].name or ticker
-                    if show_names
-                    else ticker
-                )
-                row = [asset_label]
-                row += [
-                    f"{prices[ticker][0]:,.2f}",
-                    qty_str,
-                    amt_str,
-                    prices[ticker][1],
-                    f"{old_allocation[ticker]:.2f}",
-                    new_alloc_str,
-                    f"{tgt_a:.2f}",
-                ]
-                table.add_row(*row, style=row_style)
-
-            _console.print()
-            _console.print(table)
-            _console.print(
-                f"Largest discrepancy between new and target allocation: [bold]{largest_discrepancy:.2f}%[/bold]"
-            )
-
-            if exchange_history:
-                noun = (
-                    "conversions are" if len(exchange_history) > 1 else "conversion is"
-                )
-                _console.print(
-                    f"\nBefore making the above purchases, the following currency {noun} required:"
-                )
-                for (
-                    from_amount,
-                    from_currency,
-                    to_amount,
-                    to_currency,
-                    rate,
-                ) in exchange_history:
-                    _console.print(
-                        f"  {from_amount:.0f} {from_currency} → {to_amount:.0f} {to_currency} "
-                        f"at a rate of {rate:.4f}"
-                    )
-
-            _console.print("\nRemaining cash:")
-            if balanced_portfolio._conversion_cost > 0:
-                common = balanced_portfolio._common_currency
-                _console.print(
-                    f"  {balanced_portfolio.cash[common].amount:,.0f} {common}"
-                )
-            else:
-                for cash in balanced_portfolio.cash.values():
-                    _console.print(f"  {cash.amount:,.0f} {cash.currency}")
-
-        # Now that we're done, we can replace old portfolio with the new one
         self.__dict__.update(balanced_portfolio.__dict__)
         logger.info(
-            "Rebalancing complete (largest discrepancy: {:.2f}%)", largest_discrepancy
+            "Rebalancing complete (largest discrepancy: {:.2f}%)",
+            largest_discrepancy,
+        )
+        return (new_units, prices, exchange_history, largest_discrepancy)
+
+    def rebalance(self, target_allocation, verbose=False, objective="relative-l1"):
+        """
+        Rebalances the portfolio using the specified target allocation, the portfolio's current allocation,
+        and the available cash.
+
+        Args:
+            target_allocation (Dict[str, float]): Target asset allocation of the portfolio (in %). The keys of the dictionary are the tickers of the assets.
+            verbose (bool, optional): Verbosity flag. Default is False.
+            objective (str, optional): Optimizer objective. Default is ``relative-l1``.
+
+        Returns:
+            (tuple): tuple containing:
+                * new_units (Dict[str, int]): Units of each asset to buy. The keys of the dictionary are the tickers of the assets.
+                * prices (Dict[str, [float, str]]): The keys of the dictionary are the tickers of the assets. Each value of the dictionary is a 2-entry list. The first entry is the price of the asset during the rebalancing computation. The second entry is the currency of the asset.
+                * exchange_rates (Dict[str, float]): The keys of the dictionary are currencies. Each value is the exchange rate to USD during the rebalancing computation.
+                * max_diff (float): Largest difference between target allocation and optimized asset allocation.
+        """
+
+        logger.info("Rebalancing portfolio ({} assets)", len(self._assets))
+        try:
+            plan = build_rebalance_plan(self, target_allocation)
+        except ValueError as err:
+            raise Exception(
+                "'target_allocation not compatible with the assets of the portfolio."
+            ) from err
+
+        self._validate_target_total(plan.effective_targets)
+        return self._execute_rebalance_plan(
+            plan,
+            original_targets=plan.effective_targets,
+            verbose=verbose,
+            objective=objective,
+            band_mode=False,
         )
 
-        return (new_units, prices, exchange_history, largest_discrepancy)
+    def band_rebalance(
+        self,
+        target_allocation,
+        statuses,
+        verbose=False,
+        lock_non_triggered=True,
+        objective="relative-l1",
+        plan=None,
+    ):
+        """Rebalance using band-aware targets derived from band check results.
+
+        Target-zero assets are forced to wind down, positive-target new positions
+        aim for their configured target, triggered assets start at their tolerance
+        midpoint, and non-triggered owned assets are frozen by default. Band checks
+        and frozen allocations use the cash-inclusive portfolio value after any
+        cash insertion or withdrawal has been represented in the portfolio.
+
+        Args:
+            target_allocation (Dict[str, float]): Original target allocation (in %). Must
+                cover every asset in the portfolio.
+            statuses (list[BandStatus]): Band check results from :func:`.check_bands`.
+            verbose (bool, optional): Print a rich trade table. Default is False.
+            lock_non_triggered (bool, optional): When True, non-triggered assets are
+                completely frozen — no buys or sells. Only triggered assets, new
+                positions, and wind-down positions are traded. Default is True.
+            objective (str, optional): Optimizer objective. Default is ``relative-l1``.
+
+        Returns:
+            (tuple): tuple containing:
+                * new_units (Dict[str, int | float]): Delta units to trade per ticker.
+                * prices (Dict[str, [float, str]]): Price and currency per ticker.
+                * exchange_history (list): Currency conversions required before trading.
+        """
+        logger.info("Band rebalancing portfolio ({} assets)", len(self._assets))
+        if plan is None:
+            plan = build_band_rebalance_plan(
+                self, target_allocation, statuses, lock_non_triggered=lock_non_triggered
+            )
+
+        return self._execute_rebalance_plan(
+            plan,
+            original_targets=target_allocation,
+            verbose=verbose,
+            objective=objective,
+            band_mode=True,
+        )
 
     def _sell_everything(self):
         """

@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CashConfig(BaseModel):
-    amount: float = Field(ge=0)
+    amount: float
     currency: str
 
     @field_validator("currency")
@@ -21,7 +21,7 @@ class AssetConfig(BaseModel):
     target_allocation: float = Field(ge=0, le=100)
     name: str | None = None
     isin: str | None = None
-    volatility: float | None = None
+    volatility: float | None = Field(default=None, ge=1.0, le=100.0)
     nasdaq_nordic_id: str | None = None
     nasdaq_nordic_asset_class: str | None = None
 

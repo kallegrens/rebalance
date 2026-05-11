@@ -7,7 +7,7 @@ name = "rebalance"
 version = "0.4.0"
 description = "A calculator which tells you how to split your investment amongst your portfolio's assets based on your target asset allocation."
 readme = "README.md"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 authors = [{ name = "Karl Lundgren", email = "k.github@lundgrens.net" }]
 dependencies = [
@@ -26,6 +26,7 @@ Homepage = "https://github.com/kallegrens/rebalance"
 
 [project.scripts]
 rebalance = "rebalance.__main__:main"
+rebalance-monitor = "rebalance.monitor:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.9", "ty>=0.0.34"]

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from rebalance.loader import load_portfolio
 from rebalance.logging_setup import setup_logging
 from rebalance.notifications import notify_failure
+from rebalance.rebalancing_helper import DEFAULT_OBJECTIVE, SUPPORTED_OBJECTIVES
 
 
 def main():
@@ -18,6 +19,12 @@ def main():
     parser.add_argument("portfolio", help="Path to the portfolio JSON file")
     parser.add_argument(
         "--verbose", action="store_true", help="Print detailed rebalancing output"
+    )
+    parser.add_argument(
+        "--objective",
+        choices=SUPPORTED_OBJECTIVES,
+        default=DEFAULT_OBJECTIVE,
+        help="Optimizer objective to use for trade selection.",
     )
     args = parser.parse_args()
 
@@ -37,7 +44,9 @@ def main():
         sys.exit(1)
 
     try:
-        portfolio.rebalance(target_allocation, verbose=args.verbose)
+        portfolio.rebalance(
+            target_allocation, verbose=args.verbose, objective=args.objective
+        )
     except Exception as e:
         logger.exception("Rebalancing failed unexpectedly")
         notify_failure(e, context=args.portfolio)

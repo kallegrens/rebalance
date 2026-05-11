@@ -69,3 +69,46 @@ def notify_failure(exc: BaseException, context: str = "") -> None:
         type(exc).__name__,
         context or "no context",
     )
+
+
+def notify_rebalance_trigger(triggers: list) -> None:
+    """Called when one or more assets have drifted outside their rebalancing bands.
+
+    Currently a no-op beyond logging; wire up a real notification channel here
+    using any of the patterns shown in the module docstring above.
+
+    Example implementations:
+
+    ### Option A — ntfy.sh
+
+        import httpx
+
+        body = "\\n".join(
+            f"{t.ticker}: {t.current_pct:.2f}% vs target {t.target_pct:.2f}% "
+            f"({'above' if t.direction == 'above' else 'below'} band)"
+            for t in triggers
+        )
+        httpx.post(
+            f"https://ntfy.sh/{os.environ['NTFY_TOPIC']}",
+            content=body,
+            headers={"Title": "Rebalancing required", "Priority": "high"},
+        )
+
+    ### Option B — Apprise
+
+        import apprise
+
+        ap = apprise.Apprise()
+        ap.add(os.environ["APPRISE_URL"])
+        ap.notify(
+            title="Rebalancing required",
+            body="\\n".join(f"{t.ticker} is {t.direction} its band" for t in triggers),
+        )
+
+    Args:
+        triggers: List of BandStatus objects with ``triggered=True``.
+    """
+    logger.debug(
+        "notify_rebalance_trigger called (no notifier configured): {} trigger(s)",
+        len(triggers),
+    )
