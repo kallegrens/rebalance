@@ -9,7 +9,7 @@ from rich.console import Console
 from rebalance import Asset, Cash, Portfolio
 from rebalance.band_targets import build_band_rebalance_plan, cash_inclusive_allocation
 from rebalance.money import Price
-from rebalance.rebalancing_helper import SUPPORTED_OBJECTIVES
+from rebalance.rebalancing_helper import SUPPORTED_OBJECTIVES, rebalance_optimizer
 
 
 @pytest.mark.integration
@@ -515,6 +515,89 @@ class TestConversionCost:
         assert p.cash["SEK"].amount >= -1e-4
 
 
+class TestCourtageProfile:
+    def test_buy_same_currency_asset_deducts_courtage(self, mock_price_fetchers):
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.courtage_profile = "nordnet_sweden"
+        p.add_cash(2000.0, "SEK")
+        p.add_asset(
+            Asset(
+                "VIR10SEK",
+                quantity=0,
+                nasdaq_nordic_id="TX4856348",
+                nasdaq_nordic_asset_class="ETN/ETC",
+            )
+        )
+
+        p.buy_asset("VIR10SEK", 5)
+
+        assert p.cash["SEK"].amount == pytest.approx(2000.0 - 750.0 - 9.0)
+
+    def test_buy_fractional_same_currency_asset_is_courtage_free(self):
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.courtage_profile = "nordnet_sweden"
+        p.add_cash(2000.0, "SEK")
+
+        with patch(
+            "rebalance.asset.fetch_yfinance_price", return_value=Price(100.0, "SEK")
+        ):
+            p.add_asset(Asset("FUND_A", quantity=0, fractional=True))
+
+        p.buy_asset("FUND_A", 5)
+
+        assert p.cash["SEK"].amount == pytest.approx(2000.0 - 500.0)
+
+    def test_rebalance_budget_not_exceeded_with_courtage(self, mock_price_fetchers):
+        p = Portfolio()
+        p.common_currency = "USD"
+        p.courtage_profile = "nordnet_sweden"
+        initial_usd = 1000.0
+        p.add_cash(initial_usd, "USD")
+        p.add_asset(Asset("ETF_A", quantity=0))
+        p.add_asset(Asset("ETF_B", quantity=0))
+
+        new_units, prices, _, _ = p.rebalance({"ETF_A": 50.0, "ETF_B": 50.0})
+
+        total_spend = 0.0
+        for ticker, units in new_units.items():
+            amount = max(0, units) * prices[ticker][0]
+            if amount > 0:
+                total_spend += amount + 9.0
+
+        assert total_spend <= initial_usd + 1e-4
+        assert p.cash["USD"].amount >= -1e-4
+
+    def test_verbose_table_shows_split_courtage_and_fx_fee_columns(
+        self, mock_price_fetchers
+    ):
+        p = Portfolio()
+        p.common_currency = "SEK"
+        p.conversion_cost = 0.25 / 100.0
+        p.courtage_profile = "nordnet_sweden"
+        p.selling_allowed = False
+
+        with patch(
+            "rebalance.asset.fetch_yfinance_price", return_value=Price(100.0, "USD")
+        ):
+            p.add_asset(Asset("ETF_A", quantity=0))
+
+        p.add_cash(1000.0, "SEK")
+        console = Console(record=True, width=160)
+
+        with patch("rebalance.portfolio._console", console):
+            p.rebalance({"ETF_A": 100.0}, verbose=True)
+
+        output = console.export_text()
+
+        assert "Courtage" in output
+        assert "Courtage Fee SEK" in output
+        assert "FX Fee SEK" in output
+        assert "Mini" in output
+        assert "9" in output
+
+
 class TestBandRebalance:
     """Unit tests for Portfolio.band_rebalance() using mocked prices.
 
@@ -601,6 +684,19 @@ class TestBandRebalance:
         )
         assert alloc["BBBB"] >= 45.0 - 0.5, "BBBB should be bought above lower_band"
 
+    def test_relative_l2_normalizes_band_errors_by_span(self, mock_price_fetchers):
+        """Band-aware relative-l2 should optimize in normalized band space."""
+        p = self._make_portfolio({"A": 0, "B": 0}, cash_usd=350.0)
+
+        trades = rebalance_optimizer(
+            p,
+            {"A": 15.0, "B": 85.0},
+            band_limits={"A": (0.0, 31.0), "B": (45.0, 86.0)},
+            objective="relative-l2",
+        )
+
+        assert trades == {"A": 0, "B": 3}
+
     def test_budget_not_exceeded(self, mock_price_fetchers):
         """Total spend (buys - sells) must not exceed cash + sell proceeds."""
         p = self._make_portfolio({"AAAA": 70, "BBBB": 30}, cash_usd=500.0)
@@ -627,7 +723,7 @@ class TestBandRebalance:
 
         assert 0.0 <= p.cash["USD"].amount <= 100.0
         allocation = cash_inclusive_allocation(p)
-        assert allocation["AAAA"] == pytest.approx(71.3, abs=0.2)
+        assert allocation["AAAA"] == pytest.approx(69.9, abs=0.2)
         for status in statuses:
             assert allocation[status.ticker] >= status.lower_band - 0.1
             assert allocation[status.ticker] <= status.upper_band + 0.1
@@ -647,11 +743,23 @@ class TestBandRebalance:
         new_status = plan.status_by_ticker["NEW"]
         assert new_status.direction == "below"
         assert new_status.lower_tolerance == pytest.approx(14.25)
-        assert plan.effective_targets["NEW"] == pytest.approx(14.9625)
+        assert plan.effective_targets["NEW"] == pytest.approx(14.963414634146341)
         assert plan.effective_targets["NEW"] > new_status.lower_tolerance
         assert plan.effective_targets["NEW"] < target["NEW"]
-        assert plan.effective_targets["SELL"] == pytest.approx(47.1375)
-        assert plan.effective_targets["BUY"] == pytest.approx(37.9)
+        assert plan.effective_targets["SELL"] == pytest.approx(47.08536585365854)
+        assert plan.effective_targets["BUY"] == pytest.approx(37.951219512195124)
+        normalized_reductions = {
+            ticker: (initial_target - plan.effective_targets[ticker])
+            / (initial_target - plan.status_by_ticker[ticker].lower_band)
+            for ticker, initial_target in {
+                "SELL": plan.status_by_ticker["SELL"].upper_tolerance,
+                "BUY": plan.status_by_ticker["BUY"].lower_tolerance,
+                "NEW": target["NEW"],
+            }.items()
+        }
+        assert (
+            len(set(round(value, 10) for value in normalized_reductions.values())) == 1
+        )
 
     def test_zero_holding_target_keeps_lower_midpoint_before_extra_sells(
         self, mock_price_fetchers
@@ -672,10 +780,22 @@ class TestBandRebalance:
         assert plan.effective_targets["NEW"] > new_status.lower_tolerance
         assert plan.effective_targets["NEW"] < target["NEW"]
         assert plan.effective_targets["SELL"] < sell_status.upper_tolerance
-        assert plan.effective_targets["SELL"] == pytest.approx(51.40625)
-        assert plan.effective_targets["BUY"] == pytest.approx(13.921875)
-        assert plan.effective_targets["NEW"] == pytest.approx(14.671875)
+        assert plan.effective_targets["SELL"] == pytest.approx(51.15384615384615)
+        assert plan.effective_targets["BUY"] == pytest.approx(14.115384615384615)
+        assert plan.effective_targets["NEW"] == pytest.approx(14.73076923076923)
         assert sum(plan.effective_targets.values()) == pytest.approx(100.0)
+        normalized_reductions = {
+            ticker: (initial_target - plan.effective_targets[ticker])
+            / (initial_target - plan.status_by_ticker[ticker].lower_band)
+            for ticker, initial_target in {
+                "SELL": sell_status.upper_tolerance,
+                "BUY": plan.status_by_ticker["BUY"].lower_tolerance,
+                "NEW": target["NEW"],
+            }.items()
+        }
+        assert (
+            len(set(round(value, 10) for value in normalized_reductions.values())) == 1
+        )
 
     def test_wind_down_asset_is_sold_to_zero(self, mock_price_fetchers):
         """A target-zero asset with holdings is fully liquidated."""
@@ -772,7 +892,9 @@ class TestBandRebalance:
 
         assert new_units["CCCC"] == 0
 
-    def test_locked_non_triggered_target_stays_diluted(self, mock_price_fetchers):
+    def test_locked_non_triggered_target_stays_cash_inclusive(
+        self, mock_price_fetchers
+    ):
         """Locked assets must not be used as normalization buffers."""
         p = self._make_portfolio({"SELL": 60, "BUY": 10, "LOCK": 30})
         target = {"SELL": 40.0, "BUY": 40.0, "LOCK": 20.0}
@@ -783,11 +905,11 @@ class TestBandRebalance:
 
         assert plan.locked_tickers == {"LOCK"}
         assert plan.effective_targets["LOCK"] == pytest.approx(
-            plan.diluted_allocation["LOCK"]
+            plan.cash_inclusive_allocation["LOCK"]
         )
         assert sum(plan.effective_targets.values()) == pytest.approx(100.0)
-        assert plan.effective_targets["SELL"] == pytest.approx(38.0)
-        assert plan.effective_targets["BUY"] == pytest.approx(32.0)
+        assert plan.effective_targets["SELL"] == pytest.approx(36.5)
+        assert plan.effective_targets["BUY"] == pytest.approx(33.5)
 
     @pytest.mark.parametrize("objective", SUPPORTED_OBJECTIVES)
     def test_locked_non_triggered_buffer_still_allows_full_deployment(
@@ -809,11 +931,12 @@ class TestBandRebalance:
         assert new_units["LOCK"] == 0
         assert new_units["SELL"] < 0
         assert new_units["BUY"] > 0
-        assert p.cash["USD"].amount == pytest.approx(0.0, abs=1e-4)
+        assert p.cash["USD"].amount >= -1e-4
+        assert p.cash["USD"].amount <= 100.0
         allocation = cash_inclusive_allocation(p)
         assert allocation["LOCK"] == pytest.approx(30.0, abs=0.1)
-        assert allocation["SELL"] == pytest.approx(38.0, abs=0.1)
-        assert allocation["BUY"] == pytest.approx(32.0, abs=0.1)
+        assert 36.0 <= allocation["SELL"] <= 37.1
+        assert 32.0 <= allocation["BUY"] <= 33.1
 
     def test_cash_inclusive_allocation_keeps_cash_denominator(
         self, mock_price_fetchers

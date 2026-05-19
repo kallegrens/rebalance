@@ -57,6 +57,7 @@ def load_portfolio(json_path: str) -> tuple:
     p.selling_allowed = config.selling_allowed
     p.common_currency = config.common_currency
     p.conversion_cost = config.conversion_cost / 100.0
+    p.courtage_profile = config.courtage_profile
 
     max_workers = min(len(config.assets), 8)
     logger.info("Fetching prices for {} assets...", len(config.assets))

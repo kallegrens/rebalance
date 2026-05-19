@@ -14,9 +14,22 @@ from .band_targets import (
     build_rebalance_plan,
     cash_inclusive_allocation,
 )
+from .courtage import (
+    amount_in_common_currency,
+    normalize_courtage_profile,
+    trade_fee_breakdown,
+    uses_common_currency_settlement,
+)
 from .money import Cash
 
 _console = Console()
+
+
+def _format_fee_cell(amount: float) -> str:
+    amount_fmt = f"{amount:,.0f}"
+    if amount > 0:
+        return f"[green]{amount_fmt}[/green]"
+    return f"[dim]{amount_fmt}[/dim]"
 
 
 class TargetException(Exception):
@@ -47,6 +60,7 @@ class Portfolio:
         self._is_selling_allowed = False
         self._common_currency = "EUR"
         self._conversion_cost = 0.0
+        self._courtage_profile = None
 
     @property
     def common_currency(self):
@@ -71,6 +85,17 @@ class Portfolio:
     @conversion_cost.setter
     def conversion_cost(self, cost):
         self._conversion_cost = float(cost)
+
+    @property
+    def courtage_profile(self):
+        """
+        str | None: Optional broker courtage schedule used for per-trade fees.
+        """
+        return self._courtage_profile
+
+    @courtage_profile.setter
+    def courtage_profile(self, profile):
+        self._courtage_profile = normalize_courtage_profile(profile)
 
     @property
     def cash(self):
@@ -247,20 +272,43 @@ class Portfolio:
 
         asset = self.assets[ticker]
         cost = asset.buy(quantity)
-        if (
-            self._conversion_cost > 0
-            and asset.currency.upper() != self._common_currency.upper()
-        ):
-            # Nordnet auto-converts between SEK and the asset's currency.
-            # Buying costs an extra fee_fraction; selling returns fee_fraction less.
-            fx = Cash(1, asset.currency).exchange_rate(self._common_currency)
-            fee_factor = (
-                1 + self._conversion_cost if cost >= 0 else 1 - self._conversion_cost
+        if self._uses_common_currency_settlement():
+            converted_amount = amount_in_common_currency(
+                cost,
+                asset.currency,
+                self._common_currency,
             )
-            self.add_cash(-cost * fx * fee_factor, self._common_currency)
+            fees = self._trade_fee_breakdown(
+                cost,
+                asset.currency,
+                courtage_exempt=asset.fractional,
+            )
+            self.add_cash(-converted_amount - fees.total_fee, self._common_currency)
         else:
             self.add_cash(-cost, asset.currency)
         return cost
+
+    def _trade_fee_breakdown(
+        self,
+        amount: float,
+        currency: str,
+        *,
+        courtage_exempt: bool = False,
+    ):
+        return trade_fee_breakdown(
+            amount,
+            currency,
+            self._common_currency,
+            self._conversion_cost,
+            self._courtage_profile,
+            courtage_exempt=courtage_exempt,
+        )
+
+    def _uses_common_currency_settlement(self) -> bool:
+        return uses_common_currency_settlement(
+            self._conversion_cost,
+            self._courtage_profile,
+        )
 
     def exchange_currency(
         self, to_currency, from_currency, to_amount=None, from_amount=None
@@ -341,16 +389,31 @@ class Portfolio:
         table.add_column("Δ Units", justify="right")
         table.add_column("Amount", justify="right")
         table.add_column("CCY")
+        table.add_column("Courtage", justify="center")
+        table.add_column(
+            f"Courtage Fee {balanced_portfolio.common_currency}",
+            justify="right",
+        )
+        table.add_column(
+            f"FX Fee {balanced_portfolio.common_currency}",
+            justify="right",
+        )
         table.add_column("Old %", justify="right")
         table.add_column("New %", justify="right")
         table.add_column("Target %", justify="right")
 
         for ticker in balanced_portfolio.assets:
+            asset = balanced_portfolio.assets[ticker]
             is_winding_down = target_allocation[ticker] == 0.0
             row_style = "dim" if is_winding_down else ""
 
             qty = new_units[ticker]
             amt = cost[ticker]
+            fees = balanced_portfolio._trade_fee_breakdown(
+                amt,
+                prices[ticker][1],
+                courtage_exempt=asset.fractional,
+            )
             qty_fmt = f"{qty:,d}" if isinstance(qty, int) else f"{qty:,.2f}"
             if qty > 0:
                 qty_str = f"[green]{qty_fmt}[/green]"
@@ -370,17 +433,16 @@ class Portfolio:
                 else f"{new_a:.2f}"
             )
 
-            asset_label = (
-                balanced_portfolio.assets[ticker].name or ticker
-                if show_names
-                else ticker
-            )
+            asset_label = asset.name or ticker if show_names else ticker
             row = [asset_label]
             row += [
                 f"{prices[ticker][0]:,.2f}",
                 qty_str,
                 amt_str,
                 prices[ticker][1],
+                fees.courtage_class if fees.courtage_class != "—" else "[dim]—[/dim]",
+                _format_fee_cell(fees.courtage_fee),
+                _format_fee_cell(fees.fx_fee),
                 f"{old_allocation[ticker]:.2f}",
                 new_alloc_str,
                 f"{tgt_a:.2f}",
@@ -412,7 +474,7 @@ class Portfolio:
                 )
 
         _console.print("\nRemaining cash:")
-        if balanced_portfolio._conversion_cost > 0:
+        if balanced_portfolio._uses_common_currency_settlement():
             common = balanced_portfolio._common_currency
             _console.print(f"  {balanced_portfolio.cash[common].amount:,.0f} {common}")
         else:

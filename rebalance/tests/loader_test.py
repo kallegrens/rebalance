@@ -58,6 +58,8 @@ class TestValidPortfolios:
         assert config.assets[0].name is None
         assert config.assets[0].isin is None
         assert config.assets[0].volatility is None
+        assert config.assets[0].lending_value is None
+        assert config.assets[0].extended_lending_value is None
 
     def test_fractional_defaults_to_false(self):
         config = PortfolioConfig.model_validate(_valid_portfolio())
@@ -79,6 +81,12 @@ class TestValidPortfolios:
         assert config.assets[0].fractional is True
         assert config.assets[1].fractional is False
 
+    def test_courtage_profile_is_normalized(self):
+        config = PortfolioConfig.model_validate(
+            _valid_portfolio(courtage_profile="Nordnet Sweden")
+        )
+        assert config.courtage_profile == "nordnet_sweden"
+
     def test_optional_asset_fields_present(self):
         data = _valid_portfolio(
             assets=[
@@ -89,12 +97,65 @@ class TestValidPortfolios:
                     "name": "iShares Core Canadian Universe Bond Index ETF",
                     "isin": "CA46432F1099",
                     "volatility": 4.2,
+                    "lending_value": 80.0,
+                    "extended_lending_value": 85.0,
+                    "interest_discount_eligible": True,
+                    "instrument_type": "ETF",
                 }
             ]
         )
         config = PortfolioConfig.model_validate(data)
         assert config.assets[0].isin == "CA46432F1099"
         assert config.assets[0].volatility == pytest.approx(4.2)
+        assert config.assets[0].lending_value == pytest.approx(80.0)
+        assert config.assets[0].extended_lending_value == pytest.approx(85.0)
+        assert config.assets[0].interest_discount_eligible is True
+        assert config.assets[0].instrument_type == "etf"
+
+    def test_leverage_config_accepts_single_margin_debt_object(self):
+        config = PortfolioConfig.model_validate(
+            _valid_portfolio(
+                leverage={
+                    "provider": "Nordnet",
+                    "margin_debt": {"amount": 12345.0, "currency": "sek"},
+                    "drawdown_from_ath_pct": 2.5,
+                }
+            )
+        )
+
+        assert config.leverage is not None
+        assert config.leverage.provider == "nordnet"
+        assert config.leverage.margin_debt[0].amount == pytest.approx(12345.0)
+        assert config.leverage.margin_debt[0].currency == "SEK"
+        assert config.leverage.target_leverage == pytest.approx(1.37)
+        assert config.leverage.approved_security_min_lending_value_pct == pytest.approx(
+            70.0
+        )
+        assert config.leverage.discount_limit_pct_of_lending_value == pytest.approx(
+            40.0
+        )
+        assert config.leverage.etf_extended_lending_max_weight_pct == pytest.approx(
+            20.0
+        )
+        assert config.leverage.fund_extended_lending_max_weight_pct == pytest.approx(
+            60.0
+        )
+
+    def test_leverage_config_accepts_margin_debt_list(self):
+        config = PortfolioConfig.model_validate(
+            _valid_portfolio(
+                leverage={
+                    "provider": "nordnet",
+                    "margin_debt": [
+                        {"amount": 1000.0, "currency": "SEK"},
+                        {"amount": 100.0, "currency": "EUR"},
+                    ],
+                }
+            )
+        )
+
+        assert config.leverage is not None
+        assert len(config.leverage.margin_debt) == 2
 
 
 class TestAssetValidation:
@@ -153,6 +214,32 @@ class TestAssetValidation:
         )
         config = PortfolioConfig.model_validate(data)
         assert config.assets[0].quantity == pytest.approx(10.5)
+
+    def test_lending_value_above_100_rejected(self):
+        data = _valid_portfolio(
+            assets=[
+                {
+                    "ticker": "XBB.TO",
+                    "quantity": 10,
+                    "target_allocation": 100.0,
+                    "lending_value": 101.0,
+                }
+            ]
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            PortfolioConfig.model_validate(data)
+        assert "lending_value" in str(exc_info.value)
+
+    def test_negative_margin_debt_rejected(self):
+        data = _valid_portfolio(
+            leverage={
+                "provider": "nordnet",
+                "margin_debt": {"amount": -1.0, "currency": "SEK"},
+            }
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            PortfolioConfig.model_validate(data)
+        assert "margin_debt" in str(exc_info.value)
 
 
 class TestPortfolioValidation:
@@ -237,6 +324,12 @@ class TestLoadPortfolio:
         path.write_text(json.dumps(_valid_portfolio(common_currency="SEK")))
         portfolio, _ = load_portfolio(str(path))
         assert portfolio.common_currency == "SEK"
+
+    def test_courtage_profile_propagated(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio(courtage_profile="nordnet_sweden")))
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.courtage_profile == "nordnet_sweden"
 
     def test_asset_order_preserved(self, mock_price_fetchers, tmp_path):
         """Asset insertion order must match JSON order (optimizer depends on this)."""

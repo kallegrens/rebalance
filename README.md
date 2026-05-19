@@ -33,7 +33,18 @@ use all available cash without leaving their bands, the remainder stays as cash.
 ```bash
 rebalance-monitor portfolios/my_portfolio.json
 rebalance-monitor portfolios/my_portfolio.json --trade-non-triggered
+rebalance-monitor portfolios/my_portfolio.json --withdrawal 300000 --json report.json
+rebalance-monitor portfolios/my_portfolio.json --max-withdrawal --json report.json
 ```
+
+Use `--withdrawal AMOUNT` to plan a withdrawal in the portfolio common currency.
+The monitor sells enough assets to fund the withdrawal and, when Nordnet leverage
+is configured, also reserves any credit repayment needed so the projected
+post-trade debt remains inside the selected leverage policy. A negative common
+currency cash balance without `--withdrawal` is treated as an already-recorded
+withdrawal request; do not use both at the same time. Use `--max-withdrawal` to
+estimate the largest no-new-credit withdrawal that the same planner can fund
+while staying inside the policy.
 
 ## Portfolio file format
 
@@ -43,6 +54,9 @@ Create a JSON file describing your portfolio:
 {
   "name": "My portfolio",
   "selling_allowed": false,
+  "common_currency": "SEK",
+  "conversion_cost": 0.25,
+  "courtage_profile": "nordnet_sweden",
   "cash": [
     {"amount": 3000.0, "currency": "USD"},
     {"amount": 200.0, "currency": "CAD"}
@@ -56,6 +70,66 @@ Create a JSON file describing your portfolio:
   ]
 }
 ```
+
+Set `courtage_profile` to `nordnet_sweden` to apply the built-in 9/49/69/99
+class schedule in the portfolio common currency. Courtage is added on top of
+any `conversion_cost` FX spread and is shown in verbose rebalance output under
+the `Courtage`, `Courtage Fee <CCY>`, and `FX Fee <CCY>` columns. Assets marked
+with `fractional: true` are treated as courtage-free mutual funds.
+
+## Nordnet leverage monitoring
+
+`rebalance-monitor --json PATH` writes a JSON report on every run. When no band
+has triggered, the trade rows are empty but the report still includes current
+band statuses and leverage diagnostics.
+
+Withdrawal-aware reports include top-level `withdrawal_plan` and, when requested,
+`max_withdrawal`. Trade reports also include synthetic `withdrawal_rows` and
+`financing_rows` entries so the external withdrawal and any Nordnet credit
+repayment are visible next to the asset trades without being modeled as assets.
+
+Nordnet margin debt is configured explicitly under `leverage`; do not represent
+it as negative cash. Cash remains available for deposits, withdrawals, and normal
+rebalancing capacity, while leverage analysis treats margin debt as a separate
+liability.
+
+```json
+{
+  "name": "My portfolio",
+  "common_currency": "SEK",
+  "leverage": {
+    "provider": "nordnet",
+    "margin_debt": {"amount": 370000.0, "currency": "SEK"},
+    "drawdown_from_ath_pct": 0.0,
+    "target_leverage": 1.37
+  },
+  "assets": [
+    {
+      "ticker": "0P00018JII.ST",
+      "quantity": 109,
+      "target_allocation": 1.9,
+      "lending_value": 80.0,
+      "extended_lending_value": 85.0,
+      "instrument_type": "fund"
+    }
+  ]
+}
+```
+
+For Nordnet's advanced-portfolio policy, the default target leverage is `1.37x`.
+The default fallback weighted lending value is `79%`, and the tier-1 discount
+limit is `40%` of lending value, giving the article's fallback borrowing-ratio
+ceiling of `31.6%`. If assets define `lending_value` and
+`extended_lending_value`, the monitor computes the current weighted lending value
+from actual live holdings instead of using the fallback.
+
+For Portfoljbelaning Plus level 1, the diversification check uses only approved
+holdings, meaning positions with a positive ordinary `lending_value`. The
+default caps match Nordnet's published rules: one approved stock or ETF may be
+at most `20%` of approved holdings, one approved fund may be at most `60%`, and
+the discount bracket is applied to positions whose ordinary `lending_value` is
+at least `70%`. If you want to model level 2 instead, override the JSON config
+to use `25/75` issuer caps and a `60%` discount limit.
 
 ## Example output
 

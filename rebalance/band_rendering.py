@@ -9,7 +9,14 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from .money import Cash
+from .courtage import (
+    TradeFeeBreakdown,
+    trade_fee_breakdown,
+    uses_common_currency_settlement,
+)
+from .courtage import (
+    amount_in_common_currency as _converted_amount_in_common_currency,
+)
 
 _console = Console()
 _BAR_INNER = 23
@@ -18,10 +25,14 @@ _BAR_INNER = 23
 class _ColumnSummaries(TypedDict):
     common_amount_total: float
     common_amount_currency: str
+    courtage_fee_total: float
+    courtage_fee_currency: str
+    fx_fee_total: float
+    fx_fee_currency: str
     common_fee_total: float
     common_fee_currency: str
     old_pct_total: float
-    diluted_pct_total: float
+    cash_inclusive_pct_total: float
     new_pct_total: float
     orig_target_total: float | None
     eff_target_total: float
@@ -42,16 +53,24 @@ class _BandRebalanceRow(TypedDict):
     amount: float
     amount_currency: str
     amount_cell: str
+    courtage_class: str
+    courtage_class_cell: str
     amount_common_currency: int
     amount_common_currency_currency: str
     amount_common_currency_cell: str
+    fx_fee_common_currency: int
+    fx_fee_common_currency_cell: str
+    courtage_fee_common_currency: int
+    courtage_fee_common_currency_cell: str
     fee_common_currency: int
     fee_common_currency_currency: str
     fee_common_currency_cell: str
     old_pct: float
-    diluted_pct: float
+    cash_inclusive_pct: float
     new_pct: float
     new_pct_cell: str
+    original_target_optimizer_band_distance_pp: float | None
+    original_target_optimizer_band_distance_cell: str
     original_target_pct: float | None
     original_target_cell: str
     effective_target_pct: float
@@ -75,11 +94,14 @@ def band_bar(
     if span < 1e-9:
         return Text("─" * (inner + 2))
 
+    def to_inner_idx(fraction: float) -> int:
+        return max(0, min(inner - 1, int(fraction * inner)))
+
     def to_idx(value: float) -> int:
-        return max(0, min(inner - 1, round((value - lower_band) / span * (inner - 1))))
+        return to_inner_idx((value - lower_band) / span)
 
     def midpoint_idx(fraction: float) -> int:
-        return round(fraction * (inner - 1))
+        return to_inner_idx(fraction)
 
     chars: list[str] = ["─"] * inner
     chars[midpoint_idx(0.25)] = "┤"
@@ -212,6 +234,8 @@ def _original_intended_target(
 
 def _column_summaries(
     common_amounts: Mapping[str, float | int],
+    courtage_fees: Mapping[str, float | int],
+    fx_fees: Mapping[str, float | int],
     common_fees: Mapping[str, float | int],
     new_allocation: Mapping[str, float],
     plan,
@@ -226,10 +250,14 @@ def _column_summaries(
     return {
         "common_amount_total": float(sum(common_amounts.values())),
         "common_amount_currency": common_currency,
+        "courtage_fee_total": float(sum(courtage_fees.values())),
+        "courtage_fee_currency": common_currency,
+        "fx_fee_total": float(sum(fx_fees.values())),
+        "fx_fee_currency": common_currency,
         "common_fee_total": float(sum(common_fees.values())),
         "common_fee_currency": common_currency,
         "old_pct_total": float(sum(plan.assets_only_allocation.values())),
-        "diluted_pct_total": float(sum(plan.diluted_allocation.values())),
+        "cash_inclusive_pct_total": float(sum(plan.cash_inclusive_allocation.values())),
         "new_pct_total": float(sum(new_allocation.values())),
         "orig_target_total": (
             float(
@@ -251,7 +279,7 @@ def _amount_in_common_currency(
     conversion_cost: float,
 ) -> float:
     del conversion_cost
-    return Cash(amount, currency).amount_in(common_currency)
+    return _converted_amount_in_common_currency(amount, currency, common_currency)
 
 
 def _whole_common_amount(
@@ -277,11 +305,18 @@ def _common_currency_fee(
     currency: str,
     common_currency: str,
     conversion_cost: float,
+    courtage_profile: str | None = None,
+    *,
+    courtage_exempt: bool = False,
 ) -> float:
-    if conversion_cost <= 0 or currency.upper() == common_currency.upper():
-        return 0.0
-    converted_amount = Cash(amount, currency).amount_in(common_currency)
-    return abs(converted_amount) * conversion_cost
+    return trade_fee_breakdown(
+        amount,
+        currency,
+        common_currency,
+        conversion_cost,
+        courtage_profile,
+        courtage_exempt=courtage_exempt,
+    ).total_fee
 
 
 def _whole_common_fee(
@@ -289,6 +324,9 @@ def _whole_common_fee(
     currency: str,
     common_currency: str,
     conversion_cost: float,
+    courtage_profile: str | None = None,
+    *,
+    courtage_exempt: bool = False,
 ) -> int:
     return int(
         round(
@@ -297,6 +335,8 @@ def _whole_common_fee(
                 currency,
                 common_currency,
                 conversion_cost,
+                courtage_profile,
+                courtage_exempt=courtage_exempt,
             )
         )
     )
@@ -328,6 +368,131 @@ def _trade_label(quantity: int | float) -> str:
     return "—"
 
 
+def _active_financing_adjustment(plan) -> dict | None:
+    adjustment = getattr(plan, "financing_adjustment", None)
+    if not adjustment or adjustment.get("action") == "none":
+        return None
+    if not adjustment.get("included_in_trade_plan"):
+        return None
+    return adjustment
+
+
+def _financing_trade_cell(action: str) -> str:
+    if action == "draw":
+        return "[green]DRAW[/green]"
+    if action == "repay":
+        return "[red]REPAY[/red]"
+    return "[dim]—[/dim]"
+
+
+def _build_financing_rows(plan, common_currency: str) -> list[dict]:
+    adjustment = _active_financing_adjustment(plan)
+    if adjustment is None:
+        return []
+
+    cash_delta = float(adjustment["applied_cash_delta"])
+    return [
+        {
+            "type": adjustment["type"],
+            "label": adjustment["label"],
+            "action": adjustment["action"],
+            "trade": adjustment["action"].upper(),
+            "amount": cash_delta,
+            "amount_currency": common_currency,
+            "amount_common_currency": int(round(cash_delta)),
+            "amount_common_currency_currency": common_currency,
+            "margin_debt_delta": adjustment["margin_debt_delta"],
+            "recommended_debt_delta": adjustment["recommended_debt_delta"],
+            "reason": adjustment["reason"],
+        }
+    ]
+
+
+def _active_withdrawal_plan(plan) -> dict | None:
+    withdrawal = getattr(plan, "withdrawal_plan", None)
+    if not withdrawal or not withdrawal.get("feasible", True):
+        return None
+    requested_amount = float(withdrawal.get("requested_amount", 0.0) or 0.0)
+    if requested_amount <= 1e-9:
+        return None
+    return withdrawal
+
+
+def _withdrawal_cash_delta(plan) -> float:
+    withdrawal = _active_withdrawal_plan(plan)
+    if withdrawal is None:
+        return 0.0
+
+    cash_delta = withdrawal.get("withdrawal_cash_delta")
+    if cash_delta is not None:
+        return float(cash_delta)
+
+    requested_amount = float(withdrawal.get("requested_amount", 0.0) or 0.0)
+    return -requested_amount
+
+
+def _build_withdrawal_rows(plan, common_currency: str) -> list[dict]:
+    withdrawal = _active_withdrawal_plan(plan)
+    if withdrawal is None:
+        return []
+
+    amount = -float(withdrawal["requested_amount"])
+    return [
+        {
+            "type": "external_withdrawal",
+            "label": "Withdrawal",
+            "action": "withdraw",
+            "trade": "WITHDRAW",
+            "amount": amount,
+            "amount_currency": common_currency,
+            "amount_common_currency": int(round(amount)),
+            "amount_common_currency_currency": common_currency,
+            "source": withdrawal.get("source"),
+            "reason": withdrawal.get(
+                "reason", "External withdrawal included in planning cash."
+            ),
+        }
+    ]
+
+
+def _withdrawal_trade_cell() -> str:
+    return "[red]WITHDRAW[/red]"
+
+
+def _band_distance_pp(status, reference_pct: float, value_pct: float) -> float | None:
+    if status is None:
+        return None
+
+    span = status.upper_band - status.lower_band
+    if span <= 1e-9:
+        return None
+
+    return abs(value_pct - reference_pct) / span * 100.0
+
+
+def _optimizer_result_pct(
+    balanced_portfolio,
+    plan,
+    ticker: str,
+    common_amount: float,
+    fee_breakdowns: Mapping[str, TradeFeeBreakdown],
+    *,
+    fallback_pct: float,
+) -> float:
+    value_method = getattr(balanced_portfolio, "value", None)
+    if not callable(value_method):
+        return fallback_pct
+
+    pre_trade_total = float(value_method(balanced_portfolio.common_currency)) + sum(
+        float(fee_breakdown.total_fee) for fee_breakdown in fee_breakdowns.values()
+    )
+    if pre_trade_total <= 1e-9:
+        return fallback_pct
+
+    current_value = plan.cash_inclusive_allocation[ticker] / 100.0 * pre_trade_total
+    return (current_value + common_amount) / pre_trade_total * 100.0
+
+
 def _build_band_rebalance_rows(
     balanced_portfolio,
     new_units: dict[str, int | float],
@@ -338,6 +503,7 @@ def _build_band_rebalance_rows(
     plan,
 ) -> tuple[list[_BandRebalanceRow], _ColumnSummaries]:
     common_currency = balanced_portfolio.common_currency
+    courtage_profile = getattr(balanced_portfolio, "courtage_profile", None)
     common_amounts = {
         ticker: _whole_common_amount(
             cost[ticker],
@@ -347,14 +513,37 @@ def _build_band_rebalance_rows(
         )
         for ticker in cost
     }
-    common_fees = {
-        ticker: _whole_common_fee(
+    common_amounts_exact = {
+        ticker: _amount_in_common_currency(
             cost[ticker],
             prices[ticker][1],
             common_currency,
             balanced_portfolio.conversion_cost,
         )
         for ticker in cost
+    }
+    fee_breakdowns = {
+        ticker: trade_fee_breakdown(
+            cost[ticker],
+            prices[ticker][1],
+            common_currency,
+            balanced_portfolio.conversion_cost,
+            courtage_profile,
+            courtage_exempt=getattr(
+                balanced_portfolio.assets[ticker], "fractional", False
+            ),
+        )
+        for ticker in cost
+    }
+    common_fees = {
+        ticker: int(round(fee_breakdowns[ticker].total_fee)) for ticker in cost
+    }
+    fx_fees = {ticker: int(round(fee_breakdowns[ticker].fx_fee)) for ticker in cost}
+    courtage_fees = {
+        ticker: int(round(fee_breakdowns[ticker].courtage_fee)) for ticker in cost
+    }
+    courtage_classes = {
+        ticker: fee_breakdowns[ticker].courtage_class for ticker in cost
     }
     original_targets: dict[str, float | None] = {}
     rows: list[_BandRebalanceRow] = []
@@ -374,13 +563,29 @@ def _build_band_rebalance_rows(
         amount = cost[ticker]
         quantity_str, amount_str, trade_str = _format_trade(quantity, amount)
         common_amount = common_amounts[ticker]
+        courtage_class = courtage_classes[ticker]
+        fx_fee = fx_fees[ticker]
+        courtage_fee = courtage_fees[ticker]
         common_fee = common_fees[ticker]
         eff_target = plan.effective_targets[ticker]
         new_pct = new_allocation[ticker]
+        optimizer_result_pct = _optimizer_result_pct(
+            balanced_portfolio,
+            plan,
+            ticker,
+            common_amounts_exact[ticker],
+            fee_breakdowns,
+            fallback_pct=new_pct,
+        )
+        original_target_optimizer_band_distance_pp = (
+            _band_distance_pp(status, orig_target, optimizer_result_pct)
+            if orig_target is not None
+            else None
+        )
         bar = (
             band_bar(
                 plan.assets_only_allocation[ticker],
-                plan.diluted_allocation[ticker],
+                plan.cash_inclusive_allocation[ticker],
                 new_pct,
                 orig_target,
                 eff_target,
@@ -406,19 +611,33 @@ def _build_band_rebalance_rows(
                 "amount": amount,
                 "amount_currency": prices[ticker][1],
                 "amount_cell": amount_str,
+                "courtage_class": courtage_class,
+                "courtage_class_cell": (
+                    courtage_class if courtage_class != "—" else "[dim]—[/dim]"
+                ),
                 "amount_common_currency": common_amount,
                 "amount_common_currency_currency": common_currency,
                 "amount_common_currency_cell": _format_amount(common_amount),
+                "fx_fee_common_currency": fx_fee,
+                "fx_fee_common_currency_cell": _format_amount(fx_fee),
+                "courtage_fee_common_currency": courtage_fee,
+                "courtage_fee_common_currency_cell": _format_amount(courtage_fee),
                 "fee_common_currency": common_fee,
                 "fee_common_currency_currency": common_currency,
                 "fee_common_currency_cell": _format_amount(common_fee),
                 "old_pct": plan.assets_only_allocation[ticker],
-                "diluted_pct": plan.diluted_allocation[ticker],
+                "cash_inclusive_pct": plan.cash_inclusive_allocation[ticker],
                 "new_pct": new_pct,
                 "new_pct_cell": (
                     f"[yellow]{new_pct:.2f}[/yellow]"
                     if abs(new_pct - eff_target) > 0.5
                     else f"{new_pct:.2f}"
+                ),
+                "original_target_optimizer_band_distance_pp": original_target_optimizer_band_distance_pp,
+                "original_target_optimizer_band_distance_cell": (
+                    f"{original_target_optimizer_band_distance_pp:.2f}"
+                    if original_target_optimizer_band_distance_pp is not None
+                    else "[dim]—[/dim]"
                 ),
                 "original_target_pct": orig_target,
                 "original_target_cell": (
@@ -434,11 +653,19 @@ def _build_band_rebalance_rows(
 
     summaries = _column_summaries(
         common_amounts,
+        courtage_fees,
+        fx_fees,
         common_fees,
         new_allocation,
         plan,
         original_targets,
         common_currency=common_currency,
+    )
+    rows.sort(
+        key=lambda row: (
+            row["original_target_optimizer_band_distance_pp"] is None,
+            -(row["original_target_optimizer_band_distance_pp"] or 0.0),
+        )
     )
     return rows, summaries
 
@@ -463,6 +690,12 @@ def build_band_rebalance_report(
         plan,
     )
     common_currency = balanced_portfolio.common_currency
+    withdrawal_rows = _build_withdrawal_rows(plan, common_currency)
+    withdrawal_cash_delta = _withdrawal_cash_delta(plan)
+    financing_rows = _build_financing_rows(plan, common_currency)
+    financing_cash_delta = float(
+        sum(row["amount_common_currency"] for row in financing_rows)
+    )
 
     return {
         "common_currency": common_currency,
@@ -478,28 +711,48 @@ def build_band_rebalance_report(
                 "delta_units": row["delta_units"],
                 "amount": row["amount"],
                 "amount_currency": row["amount_currency"],
+                "courtage_class": row["courtage_class"],
                 "amount_common_currency": row["amount_common_currency"],
                 "amount_common_currency_currency": row[
                     "amount_common_currency_currency"
                 ],
+                "fx_fee_common_currency": row["fx_fee_common_currency"],
+                "courtage_fee_common_currency": row["courtage_fee_common_currency"],
                 "fee_common_currency": row["fee_common_currency"],
                 "fee_common_currency_currency": row["fee_common_currency_currency"],
                 "old_pct": row["old_pct"],
-                "diluted_pct": row["diluted_pct"],
+                "cash_inclusive_pct": row["cash_inclusive_pct"],
                 "new_pct": row["new_pct"],
+                "original_target_optimizer_band_distance_pp": row[
+                    "original_target_optimizer_band_distance_pp"
+                ],
                 "original_target_pct": row["original_target_pct"],
                 "effective_target_pct": row["effective_target_pct"],
                 "band_bar": row["band_bar_plain"],
             }
             for row in rows
         ],
+        "withdrawal_rows": withdrawal_rows,
+        "financing_rows": financing_rows,
         "summary": {
             "amount_common_currency_total": summaries["common_amount_total"],
             "amount_common_currency_currency": summaries["common_amount_currency"],
+            "withdrawal_cash_delta": withdrawal_cash_delta,
+            "withdrawal_cash_delta_currency": common_currency,
+            "financing_cash_delta": financing_cash_delta,
+            "financing_cash_delta_currency": common_currency,
+            "net_external_cash_delta": withdrawal_cash_delta + financing_cash_delta,
+            "net_external_cash_delta_currency": common_currency,
+            "fx_fee_common_currency_total": float(
+                sum(row["fx_fee_common_currency"] for row in rows)
+            ),
+            "courtage_fee_common_currency_total": float(
+                sum(row["courtage_fee_common_currency"] for row in rows)
+            ),
             "fee_common_currency_total": summaries["common_fee_total"],
             "fee_common_currency_currency": summaries["common_fee_currency"],
             "old_pct_total": summaries["old_pct_total"],
-            "diluted_pct_total": summaries["diluted_pct_total"],
+            "cash_inclusive_pct_total": summaries["cash_inclusive_pct_total"],
             "new_pct_total": summaries["new_pct_total"],
             "original_target_pct_total": summaries["orig_target_total"],
             "effective_target_pct_total": summaries["eff_target_total"],
@@ -556,11 +809,17 @@ def render_band_rebalance_table(
     table.add_column("Δ Units", justify="right")
     table.add_column("Amount", justify="right")
     table.add_column("CCY")
+    table.add_column("Courtage", justify="center")
+    table.add_column(
+        f"Courtage Fee {balanced_portfolio.common_currency}",
+        justify="right",
+    )
+    table.add_column(f"FX Fee {balanced_portfolio.common_currency}", justify="right")
     table.add_column(f"Amount {balanced_portfolio.common_currency}", justify="right")
-    table.add_column(f"Fee {balanced_portfolio.common_currency}", justify="right")
     table.add_column("[dim white]◌[/dim white] Old %", justify="right")
-    table.add_column("[yellow]●[/yellow] Diluted %", justify="right")
+    table.add_column("[yellow]●[/yellow] Cash-Inclusive %", justify="right")
     table.add_column("[bright_white]○[/bright_white] New %", justify="right")
+    table.add_column("Orig->Opt Band pp", justify="right")
     table.add_column("[magenta]◇[/magenta] Orig Target %", justify="right")
     table.add_column("[cyan]◎[/cyan] Eff Target %", justify="right")
     table.add_column(
@@ -580,22 +839,74 @@ def render_band_rebalance_table(
             row["delta_units_cell"],
             row["amount_cell"],
             row["price_currency"],
+            row["courtage_class_cell"],
+            row["courtage_fee_common_currency_cell"],
+            row["fx_fee_common_currency_cell"],
             row["amount_common_currency_cell"],
-            row["fee_common_currency_cell"],
             f"{row['old_pct']:.2f}",
-            f"{row['diluted_pct']:.2f}",
+            f"{row['cash_inclusive_pct']:.2f}",
             row["new_pct_cell"],
+            row["original_target_optimizer_band_distance_cell"],
             row["original_target_cell"],
             f"{row['effective_target_pct']:.2f}",
             row["band_bar"],
             style=row["row_style"],
         )
 
+    for row in _build_withdrawal_rows(plan, balanced_portfolio.common_currency):
+        amount_cell = _format_amount(row["amount_common_currency"])
+        table.add_row(
+            "",
+            _withdrawal_trade_cell(),
+            row["label"],
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            amount_cell,
+            row["amount_currency"],
+            "[dim]—[/dim]",
+            "[dim]0[/dim]",
+            "[dim]0[/dim]",
+            amount_cell,
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            Text(row["reason"], style="dim"),
+        )
+
+    for row in _build_financing_rows(plan, balanced_portfolio.common_currency):
+        amount_cell = _format_amount(row["amount_common_currency"])
+        table.add_row(
+            "",
+            _financing_trade_cell(row["action"]),
+            row["label"],
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            amount_cell,
+            row["amount_currency"],
+            "[dim]—[/dim]",
+            "[dim]0[/dim]",
+            "[dim]0[/dim]",
+            amount_cell,
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            "[dim]—[/dim]",
+            Text(row["reason"], style="dim"),
+        )
+
     amount_total_str, _ = _format_total_amount(
         summaries["common_amount_total"], summaries["common_amount_currency"]
     )
-    fee_total_str, _ = _format_total_amount(
-        summaries["common_fee_total"], summaries["common_fee_currency"]
+    courtage_total_str, _ = _format_total_amount(
+        summaries["courtage_fee_total"], summaries["courtage_fee_currency"]
+    )
+    fx_total_str, _ = _format_total_amount(
+        summaries["fx_fee_total"], summaries["fx_fee_currency"]
     )
     orig_target_total = summaries["orig_target_total"]
     table.add_row(
@@ -606,11 +917,14 @@ def render_band_rebalance_table(
         "",
         "",
         "",
+        "",
+        courtage_total_str,
+        fx_total_str,
         amount_total_str,
-        fee_total_str,
         f"{summaries['old_pct_total']:.2f}",
-        f"{summaries['diluted_pct_total']:.2f}",
+        f"{summaries['cash_inclusive_pct_total']:.2f}",
         f"{summaries['new_pct_total']:.2f}",
+        "[dim]—[/dim]",
         f"{orig_target_total:.2f}" if orig_target_total is not None else "[dim]—[/dim]",
         f"{summaries['eff_target_total']:.2f}",
         "",
@@ -639,7 +953,10 @@ def _render_exchange_history(exchange_history: list) -> None:
 
 def _render_remaining_cash(balanced_portfolio) -> None:
     _console.print("\nRemaining cash:")
-    if balanced_portfolio._conversion_cost > 0:
+    if uses_common_currency_settlement(
+        getattr(balanced_portfolio, "_conversion_cost", 0.0),
+        getattr(balanced_portfolio, "courtage_profile", None),
+    ):
         common = balanced_portfolio._common_currency
         _console.print(f"  {balanced_portfolio.cash[common].amount:,.0f} {common}")
     else:

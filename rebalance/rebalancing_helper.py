@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import cvxpy as cp
 import numpy as np
 
+from .courtage import courtage_segments, uses_common_currency_settlement
+
 DEFAULT_OBJECTIVE = "relative-l1"
 SUPPORTED_OBJECTIVES = (
     "absolute-l1",
@@ -63,6 +65,7 @@ class _OptimizerInputs:
     portfolio_value: float
     target_weights: np.ndarray
     target_values: np.ndarray
+    relative_error_scales: np.ndarray
 
 
 def rebalance(
@@ -163,7 +166,8 @@ def rebalance(
     # automatically and charges the fee at execution time; buy_asset() already
     # accounts for this by deducting from the common currency directly.
     conversion_cost = getattr(portfolio, "_conversion_cost", 0.0)
-    if conversion_cost > 0:
+    courtage_profile = getattr(portfolio, "_courtage_profile", None)
+    if uses_common_currency_settlement(conversion_cost, courtage_profile):
         exchange_history = []
     else:
         exchange_history = balanced_portfolio._smart_exchange(currency_cost)
@@ -190,7 +194,27 @@ def normalize_objective(objective: str) -> str:
     return normalized
 
 
-def _optimizer_inputs(portfolio, target_alloc) -> _OptimizerInputs:
+def _relative_error_scales(
+    tickers: list[str],
+    target_weights: np.ndarray,
+    target_values: np.ndarray,
+    portfolio_value: float,
+    band_limits=None,
+) -> np.ndarray:
+    scales = []
+    for i, ticker in enumerate(tickers):
+        if band_limits is not None and ticker in band_limits:
+            lower_pct, upper_pct = band_limits[ticker]
+            band_span_value = (upper_pct - lower_pct) / 100.0 * portfolio_value
+            scales.append(max(band_span_value, 1e-9))
+        elif target_weights[i] > 0:
+            scales.append(float(target_values[i]))
+        else:
+            scales.append(portfolio_value)
+    return np.array(scales)
+
+
+def _optimizer_inputs(portfolio, target_alloc, band_limits=None) -> _OptimizerInputs:
     common_currency = portfolio._common_currency
     tickers = list(portfolio.assets.keys())
     prices = np.array(
@@ -212,6 +236,13 @@ def _optimizer_inputs(portfolio, target_alloc) -> _OptimizerInputs:
 
     target_weights = np.array([target_alloc[ticker] / 100.0 for ticker in tickers])
     target_values = target_weights * portfolio_value
+    relative_error_scales = _relative_error_scales(
+        tickers,
+        target_weights,
+        target_values,
+        portfolio_value,
+        band_limits,
+    )
 
     return _OptimizerInputs(
         common_currency=common_currency,
@@ -222,6 +253,7 @@ def _optimizer_inputs(portfolio, target_alloc) -> _OptimizerInputs:
         portfolio_value=portfolio_value,
         target_weights=target_weights,
         target_values=target_values,
+        relative_error_scales=relative_error_scales,
     )
 
 
@@ -248,11 +280,7 @@ def _absolute_residuals(inputs: _OptimizerInputs, share_vars):
 def _relative_residuals(inputs: _OptimizerInputs, share_vars):
     residuals = []
     for i, raw in enumerate(_absolute_residuals(inputs, share_vars)):
-        scale = (
-            float(inputs.target_values[i])
-            if inputs.target_weights[i] > 0
-            else inputs.portfolio_value
-        )
+        scale = float(inputs.relative_error_scales[i])
         residuals.append(raw / scale)
     return residuals
 
@@ -315,22 +343,84 @@ def _objective(inputs: _OptimizerInputs, share_vars, objective: str):
     raise AssertionError(f"Unhandled objective: {objective}")
 
 
-def _budget_constraint(portfolio, inputs: _OptimizerInputs, share_vars):
+def _courtage_fee_constraints(
+    abs_notional,
+    courtage_profile,
+    max_notional: float,
+    *,
+    courtage_exempt: bool = False,
+):
+    if courtage_profile is None or courtage_exempt:
+        return 0, []
+
+    segments = courtage_segments(courtage_profile, max_notional)
+    segment_values = [cp.Variable(nonneg=True) for _ in segments]
+    segment_active = [cp.Variable(boolean=True) for _ in segments]
+    fee_var = cp.Variable(nonneg=True)
+    constraints = [
+        abs_notional == cp.sum(cp.hstack(segment_values)),
+        cp.sum(cp.hstack(segment_active)) == 1,
+        fee_var
+        == cp.sum(
+            cp.hstack(
+                [
+                    segment.slope * segment_values[i]
+                    + segment.intercept * segment_active[i]
+                    for i, segment in enumerate(segments)
+                ]
+            )
+        ),
+    ]
+    for i, segment in enumerate(segments):
+        constraints.append(
+            segment_values[i] >= segment.lower_notional * segment_active[i]
+        )
+        constraints.append(
+            segment_values[i] <= segment.upper_notional * segment_active[i]
+        )
+    return fee_var, constraints
+
+
+def _budget_constraints(portfolio, inputs: _OptimizerInputs, share_vars):
     spend = sum(
         float(inputs.prices[i]) * share_vars[i] for i in range(len(inputs.tickers))
     )
+    constraints = []
     fee_term = 0
     conversion_cost = getattr(portfolio, "_conversion_cost", 0.0)
-    if conversion_cost > 0:
-        for i, ticker in enumerate(inputs.tickers):
-            if (
-                portfolio.assets[ticker].currency.upper()
-                != inputs.common_currency.upper()
-            ):
-                fee_term = fee_term + conversion_cost * float(
-                    inputs.prices[i]
-                ) * cp.abs(share_vars[i])
-    return spend + fee_term <= inputs.total_cash
+    courtage_profile = getattr(portfolio, "_courtage_profile", None)
+    max_trade_notional = float(np.sum(inputs.current_values)) + max(
+        0.0, inputs.total_cash
+    )
+    for i, ticker in enumerate(inputs.tickers):
+        asset = portfolio.assets[ticker]
+        needs_fx_fee = (
+            conversion_cost > 0
+            and asset.currency.upper() != inputs.common_currency.upper()
+        )
+        needs_courtage_fee = courtage_profile is not None and not asset.fractional
+        if not needs_fx_fee and not needs_courtage_fee:
+            continue
+
+        abs_notional = cp.Variable(nonneg=True)
+        price = float(inputs.prices[i])
+        constraints.append(abs_notional >= price * share_vars[i])
+        constraints.append(abs_notional >= -price * share_vars[i])
+
+        if needs_fx_fee:
+            fee_term = fee_term + conversion_cost * abs_notional
+
+        if needs_courtage_fee:
+            courtage_fee, courtage_constraints = _courtage_fee_constraints(
+                abs_notional,
+                courtage_profile,
+                max_trade_notional,
+                courtage_exempt=asset.fractional,
+            )
+            fee_term = fee_term + courtage_fee
+            constraints.extend(courtage_constraints)
+    constraints.append(spend + fee_term <= inputs.total_cash)
+    return constraints
 
 
 def _sell_constraints(portfolio, tickers: list[str], share_vars, sellable_tickers):
@@ -459,9 +549,10 @@ def rebalance_optimizer(
         Dict[str, int | float]: Shares to buy per ticker (negative = sell).
     """
     objective = normalize_objective(objective)
-    inputs = _optimizer_inputs(portfolio, target_alloc)
+    inputs = _optimizer_inputs(portfolio, target_alloc, band_limits=band_limits)
     share_vars = _share_variables(portfolio, inputs.tickers)
-    constraints = [_budget_constraint(portfolio, inputs, share_vars)]
+    constraints = []
+    constraints.extend(_budget_constraints(portfolio, inputs, share_vars))
     constraints.extend(
         _sell_constraints(portfolio, inputs.tickers, share_vars, sellable_tickers)
     )
