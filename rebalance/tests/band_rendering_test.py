@@ -144,6 +144,12 @@ def test_format_trade_uses_two_decimals_for_fractional_units():
     assert quantity_markup == "[green]1.23[/green]"
 
 
+def test_format_trade_uses_pending_label_when_flagged():
+    _, _, trade_markup = _format_trade(10, 100.0, pending=True)
+
+    assert trade_markup == "[#ffb300]PENDING[/#ffb300]"
+
+
 def test_column_summaries_total_single_currency_amount_and_percentages():
     plan = SimpleNamespace(
         assets_only_allocation={"AAA": 60.0, "BBB": 40.0},
@@ -275,7 +281,13 @@ def test_common_currency_fee_includes_courtage_when_profile_enabled():
         autospec=True,
         side_effect=fake_exchange_rate,
     ):
-        fee = _common_currency_fee(500.0, "USD", "SEK", 0.0025, "nordnet_sweden")
+        fee = _common_currency_fee(
+            500.0,
+            "USD",
+            "SEK",
+            0.0025,
+            "nordnet_germany_uk",
+        )
 
     assert fee == pytest.approx(25.0)
 
@@ -298,7 +310,7 @@ def test_common_currency_fee_skips_courtage_for_fractional_assets():
             "USD",
             "SEK",
             0.0025,
-            "nordnet_sweden",
+            "nordnet_germany_uk",
             courtage_exempt=True,
         )
 
@@ -343,7 +355,7 @@ def test_build_band_rebalance_report_contains_rows_and_summary():
     portfolio = SimpleNamespace(
         common_currency="USD",
         conversion_cost=0.0,
-        assets={"AAA": SimpleNamespace(name="Asset A")},
+        assets={"AAA": SimpleNamespace(name="Asset A", pending=False)},
         cash={"USD": SimpleNamespace(amount=12.5, currency="USD")},
     )
     plan = SimpleNamespace(
@@ -381,6 +393,36 @@ def test_build_band_rebalance_report_contains_rows_and_summary():
     assert report["summary"]["cash_inclusive_pct_total"] == 0.0
     assert report["exchange_history"][0]["to_currency"] == "USD"
     assert report["remaining_cash"][0] == {"amount": 12.5, "currency": "USD"}
+
+
+def test_build_band_rebalance_report_marks_pending_trade():
+    portfolio = SimpleNamespace(
+        common_currency="USD",
+        conversion_cost=0.0,
+        assets={"AAA": SimpleNamespace(name="Asset A", pending=True)},
+        cash={"USD": SimpleNamespace(amount=12.5, currency="USD")},
+    )
+    plan = SimpleNamespace(
+        locked_tickers=set(),
+        status_by_ticker={"AAA": _status(direction="below", current_pct=0.0)},
+        assets_only_allocation={"AAA": 0.0},
+        cash_inclusive_allocation={"AAA": 0.0},
+        effective_targets={"AAA": 10.0},
+    )
+
+    with patch("rebalance.courtage.Cash.exchange_rate", return_value=1.0):
+        report = build_band_rebalance_report(
+            portfolio,
+            new_units={"AAA": 10},
+            prices={"AAA": [12.0, "USD"]},
+            cost={"AAA": 120.0},
+            exchange_history=[],
+            new_allocation={"AAA": 9.8},
+            target_allocation={"AAA": 10.0},
+            plan=plan,
+        )
+
+    assert report["rows"][0]["trade"] == "PENDING"
 
 
 def test_build_band_rebalance_report_includes_financing_rows():
@@ -629,7 +671,7 @@ def test_build_band_rebalance_report_includes_courtage_breakdown():
     portfolio = SimpleNamespace(
         common_currency="SEK",
         conversion_cost=0.0025,
-        courtage_profile="nordnet_sweden",
+        courtage_profile="nordnet_germany_uk",
         assets={"AAA": SimpleNamespace(name="Asset A")},
         cash={"SEK": SimpleNamespace(amount=12.5, currency="SEK")},
     )
@@ -677,7 +719,7 @@ def test_build_band_rebalance_report_skips_courtage_for_fractional_asset():
     portfolio = SimpleNamespace(
         common_currency="SEK",
         conversion_cost=0.0025,
-        courtage_profile="nordnet_sweden",
+        courtage_profile="nordnet_germany_uk",
         assets={"AAA": SimpleNamespace(name="Asset A", fractional=True)},
         cash={"SEK": SimpleNamespace(amount=12.5, currency="SEK")},
     )
@@ -722,7 +764,7 @@ def test_render_band_rebalance_table_shows_courtage_class():
     portfolio = SimpleNamespace(
         common_currency="SEK",
         conversion_cost=0.0025,
-        courtage_profile="nordnet_sweden",
+        courtage_profile="nordnet_germany_uk",
         assets={"AAA": SimpleNamespace(name="Asset A")},
         cash={"SEK": SimpleNamespace(amount=12.5, currency="SEK")},
         _conversion_cost=0.0025,

@@ -40,13 +40,25 @@ class TradeFeeBreakdown:
 
 _NO_COURTAGE_CLASS = "—"
 _COURTAGE_PROFILES: dict[str, tuple[CourtageTier, ...]] = {
-    "nordnet_sweden": (
+    "nordnet_germany_uk": (
         CourtageTier("Mini", 9.0, 0.25 / 100.0),
         CourtageTier("Liten", 49.0, 0.15 / 100.0),
         CourtageTier("Mellan", 69.0, 0.089 / 100.0),
         CourtageTier("Fast", 99.0, 0.079 / 100.0),
-    )
+    ),
+    "nordnet_stockholm": (
+        CourtageTier("Mini", 1.0, 0.25 / 100.0),
+        CourtageTier("Liten", 39.0, 0.15 / 100.0),
+        CourtageTier("Mellan", 69.0, 0.069 / 100.0),
+        CourtageTier("Fast", 99.0, 0.0),
+    ),
 }
+
+
+def _notional_at_fee(rate: float, fee: float) -> float:
+    if rate <= 0.0:
+        return float("inf")
+    return fee / rate
 
 
 def normalize_courtage_profile(profile: str | None) -> str | None:
@@ -63,12 +75,29 @@ def normalize_courtage_profile(profile: str | None) -> str | None:
     return normalized
 
 
+def resolve_courtage_profile(
+    courtage_profile: str | None,
+    asset_courtage_profile: str | None = None,
+) -> str | None:
+    if asset_courtage_profile is not None:
+        return normalize_courtage_profile(asset_courtage_profile)
+    return normalize_courtage_profile(courtage_profile)
+
+
 def uses_common_currency_settlement(
-    conversion_cost: float, courtage_profile: str | None
+    conversion_cost: float,
+    courtage_profile: str | None,
+    assets=None,
 ) -> bool:
-    return (
-        float(conversion_cost) > 0.0
-        or normalize_courtage_profile(courtage_profile) is not None
+    if float(conversion_cost) > 0.0:
+        return True
+    if normalize_courtage_profile(courtage_profile) is not None:
+        return True
+    if assets is None:
+        return False
+    return any(
+        normalize_courtage_profile(getattr(asset, "courtage_profile", None)) is not None
+        for asset in assets
     )
 
 
@@ -168,26 +197,44 @@ def courtage_segments(
         segments.append(CourtageSegment(class_name, lower, upper, slope, intercept))
 
     first_tier = tiers[0]
+    if first_tier.rate <= 0.0:
+        append_segment(first_tier.name, 0.0, positive_max, 0.0, first_tier.minimum_fee)
+        return tuple(segments)
+
     append_segment(
         first_tier.name,
         0.0,
-        first_tier.minimum_fee / first_tier.rate,
+        _notional_at_fee(first_tier.rate, first_tier.minimum_fee),
         0.0,
         first_tier.minimum_fee,
     )
 
     for current_tier, next_tier in zip(tiers[:-1], tiers[1:], strict=True):
+        next_minimum_crossover = _notional_at_fee(
+            current_tier.rate,
+            next_tier.minimum_fee,
+        )
         append_segment(
             current_tier.name,
-            current_tier.minimum_fee / current_tier.rate,
-            next_tier.minimum_fee / current_tier.rate,
+            _notional_at_fee(current_tier.rate, current_tier.minimum_fee),
+            next_minimum_crossover,
             current_tier.rate,
             0.0,
         )
+        if next_tier.rate <= 0.0:
+            append_segment(
+                next_tier.name,
+                next_minimum_crossover,
+                positive_max,
+                0.0,
+                next_tier.minimum_fee,
+            )
+            return tuple(segments)
+
         append_segment(
             next_tier.name,
-            next_tier.minimum_fee / current_tier.rate,
-            next_tier.minimum_fee / next_tier.rate,
+            next_minimum_crossover,
+            _notional_at_fee(next_tier.rate, next_tier.minimum_fee),
             0.0,
             next_tier.minimum_fee,
         )
@@ -195,7 +242,7 @@ def courtage_segments(
     last_tier = tiers[-1]
     append_segment(
         last_tier.name,
-        last_tier.minimum_fee / last_tier.rate,
+        _notional_at_fee(last_tier.rate, last_tier.minimum_fee),
         positive_max,
         last_tier.rate,
         0.0,

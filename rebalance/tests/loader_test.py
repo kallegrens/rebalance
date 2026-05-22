@@ -65,6 +65,10 @@ class TestValidPortfolios:
         config = PortfolioConfig.model_validate(_valid_portfolio())
         assert config.assets[0].fractional is False
 
+    def test_pending_defaults_to_false(self):
+        config = PortfolioConfig.model_validate(_valid_portfolio())
+        assert config.assets[0].pending is False
+
     def test_fractional_explicit_true(self):
         data = _valid_portfolio(
             assets=[
@@ -81,11 +85,42 @@ class TestValidPortfolios:
         assert config.assets[0].fractional is True
         assert config.assets[1].fractional is False
 
+    def test_pending_explicit_true(self):
+        data = _valid_portfolio(
+            assets=[
+                {
+                    "ticker": "XBB.TO",
+                    "quantity": 10,
+                    "target_allocation": 60.0,
+                    "pending": True,
+                },
+                {"ticker": "XIC.TO", "quantity": 5, "target_allocation": 40.0},
+            ]
+        )
+        config = PortfolioConfig.model_validate(data)
+        assert config.assets[0].pending is True
+        assert config.assets[1].pending is False
+
     def test_courtage_profile_is_normalized(self):
         config = PortfolioConfig.model_validate(
-            _valid_portfolio(courtage_profile="Nordnet Sweden")
+            _valid_portfolio(courtage_profile="Nordnet Germany UK")
         )
-        assert config.courtage_profile == "nordnet_sweden"
+        assert config.courtage_profile == "nordnet_germany_uk"
+
+    def test_asset_courtage_profile_is_normalized(self):
+        config = PortfolioConfig.model_validate(
+            _valid_portfolio(
+                assets=[
+                    {
+                        "ticker": "VIR10SEK",
+                        "quantity": 10,
+                        "target_allocation": 100.0,
+                        "courtage_profile": "Nordnet Stockholm",
+                    }
+                ]
+            )
+        )
+        assert config.assets[0].courtage_profile == "nordnet_stockholm"
 
     def test_optional_asset_fields_present(self):
         data = _valid_portfolio(
@@ -327,9 +362,51 @@ class TestLoadPortfolio:
 
     def test_courtage_profile_propagated(self, mock_price_fetchers, tmp_path):
         path = tmp_path / "p.json"
-        path.write_text(json.dumps(_valid_portfolio(courtage_profile="nordnet_sweden")))
+        path.write_text(
+            json.dumps(_valid_portfolio(courtage_profile="nordnet_germany_uk"))
+        )
         portfolio, _ = load_portfolio(str(path))
-        assert portfolio.courtage_profile == "nordnet_sweden"
+        assert portfolio.courtage_profile == "nordnet_germany_uk"
+
+    def test_asset_courtage_profile_propagated(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(
+            json.dumps(
+                _valid_portfolio(
+                    assets=[
+                        {
+                            "ticker": "VIR10SEK",
+                            "quantity": 10,
+                            "target_allocation": 100.0,
+                            "nasdaq_nordic_id": "TX4856348",
+                            "nasdaq_nordic_asset_class": "ETN/ETC",
+                            "courtage_profile": "nordnet_stockholm",
+                        }
+                    ]
+                )
+            )
+        )
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.assets["VIR10SEK"].courtage_profile == "nordnet_stockholm"
+
+    def test_pending_flag_propagated(self, mock_price_fetchers, tmp_path):
+        path = tmp_path / "p.json"
+        path.write_text(
+            json.dumps(
+                _valid_portfolio(
+                    assets=[
+                        {
+                            "ticker": "XBB.TO",
+                            "quantity": 10,
+                            "target_allocation": 100.0,
+                            "pending": True,
+                        }
+                    ]
+                )
+            )
+        )
+        portfolio, _ = load_portfolio(str(path))
+        assert portfolio.assets["XBB.TO"].pending is True
 
     def test_asset_order_preserved(self, mock_price_fetchers, tmp_path):
         """Asset insertion order must match JSON order (optimizer depends on this)."""

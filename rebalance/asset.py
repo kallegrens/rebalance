@@ -1,5 +1,6 @@
 from loguru import logger
 
+from .courtage import normalize_courtage_profile
 from .fetchers import fetch_nasdaq_nordic_price, fetch_yfinance_price
 
 
@@ -20,6 +21,8 @@ class Asset:
         nasdaq_nordic_asset_class=None,
         name=None,
         fractional=False,
+        pending=False,
+        courtage_profile=None,
     ):
         """
         Initialization.
@@ -48,7 +51,9 @@ class Asset:
         self._ticker = ticker
         self._quantity = float(quantity)
         self._fractional = fractional
+        self._pending = pending
         self._name = name
+        self._courtage_profile = normalize_courtage_profile(courtage_profile)
 
         if nasdaq_nordic_id is not None:
             assert nasdaq_nordic_asset_class is not None, (
@@ -75,6 +80,20 @@ class Asset:
     def fractional(self):
         """(bool): Whether this asset supports fractional units."""
         return self._fractional
+
+    @property
+    def pending(self):
+        """(bool): Whether this asset has an open but unfulfilled order."""
+        return self._pending
+
+    @property
+    def courtage_profile(self):
+        """(str | None): Optional per-asset courtage profile override."""
+        return self._courtage_profile
+
+    @courtage_profile.setter
+    def courtage_profile(self, profile):
+        self._courtage_profile = normalize_courtage_profile(profile)
 
     @property
     def quantity(self):

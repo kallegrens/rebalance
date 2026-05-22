@@ -3,7 +3,7 @@
 import pytest
 
 from rebalance import Asset, Portfolio
-from rebalance.band_checker import check_bands
+from rebalance.band_checker import DEFAULT_BAND_SIGMA, BandSettings, check_bands
 
 
 def _make_portfolio(assets: list[tuple[str, float, float, str | None]]) -> Portfolio:
@@ -46,9 +46,9 @@ class TestCheckBands:
     def test_asset_above_upper_band_triggers(self):
         """Asset drifted above upper band triggers with direction='above'."""
         # AAAA: 200 units @ $10 = $2000 out of $3000 = 66.7%, target 50%, vol 10%
-        # → upper_band = 55% → triggered above
+        # → default upper_band = 57.5% → triggered above
         # BBBB: $1000/$3000 = 33.3%, target 50%, vol 40%
-        # → lower_band = 30% → 33.3% > 30%, NOT triggered
+        # → default lower_band = 20% → 33.3% > 20%, NOT triggered
         p = _make_portfolio(
             [
                 ("AAAA", 200, 10.0, "Asset A"),  # $2000
@@ -67,7 +67,7 @@ class TestCheckBands:
 
     def test_asset_below_lower_band_triggers(self):
         """Asset drifted below lower band triggers with direction='below'."""
-        # AAAA: $500 / $3000 = 16.7%, target 50%, vol 10% → lower_band = 45%
+        # AAAA: $500 / $3000 = 16.7%, target 50%, vol 10% → lower_band = 42.5%
         p = _make_portfolio(
             [
                 ("AAAA", 50, 10.0, "Asset A"),  # $500
@@ -85,12 +85,12 @@ class TestCheckBands:
 
     def test_exactly_at_upper_band_boundary_triggers(self):
         """Asset exactly at the upper band boundary is triggered."""
-        # target 10%, vol 10% → upper_band = 11.0%
-        # Need current = 11.0% exactly: asset value = 11, rest = 89 → total 100
+        # target 10%, vol 10%, default sigma 1.5 → upper_band = 11.5%
+        # Need current = 11.5% exactly: asset value = 11.5, rest = 88.5 → total 100
         p = _make_portfolio(
             [
-                ("AAAA", 11, 1.0, None),  # $11
-                ("BBBB", 89, 1.0, None),  # $89 → total $100
+                ("AAAA", 11.5, 1.0, None),  # $11.5
+                ("BBBB", 88.5, 1.0, None),  # $88.5 → total $100
             ]
         )
         target = {"AAAA": 10.0, "BBBB": 90.0}
@@ -103,8 +103,8 @@ class TestCheckBands:
         assert by_ticker["AAAA"].direction == "above"
 
     def test_tolerance_bands_computed_correctly(self):
-        """Tolerance bands are half the distance between target and band edge."""
-        # target 5.5%, vol 10% → example from the article
+        """Default tolerance bands are the midpoint between target and band edge."""
+        # target 5.5%, vol 10%, sigma 1.5
         p = _make_portfolio(
             [
                 ("IRIS", 55, 1.0, "Captor Iris Bond"),  # $55
@@ -118,10 +118,68 @@ class TestCheckBands:
         by_ticker = {s.ticker: s for s in statuses}
         s = by_ticker["IRIS"]
 
-        assert s.upper_band == pytest.approx(6.05)
-        assert s.lower_band == pytest.approx(4.95)
-        assert s.upper_tolerance == pytest.approx(5.775)
-        assert s.lower_tolerance == pytest.approx(5.225)
+        assert s.band_sigma == pytest.approx(DEFAULT_BAND_SIGMA)
+        assert s.lower_band_sigma == pytest.approx(DEFAULT_BAND_SIGMA)
+        assert s.upper_band_sigma == pytest.approx(DEFAULT_BAND_SIGMA)
+        assert s.upper_band == pytest.approx(6.325)
+        assert s.lower_band == pytest.approx(4.675)
+        assert s.upper_tolerance == pytest.approx(5.9125)
+        assert s.lower_tolerance == pytest.approx(5.0875)
+
+    def test_symmetric_band_sigma_override(self):
+        """A per-asset band_sigma override widens both sides symmetrically."""
+        p = _make_portfolio(
+            [
+                ("IRIS", 55, 1.0, "Captor Iris Bond"),
+                ("REST", 945, 1.0, None),
+            ]
+        )
+        target = {"IRIS": 5.5, "REST": 94.5}
+        settings = {
+            "IRIS": BandSettings(volatility_pct=10.0, band_sigma=2.5),
+            "REST": BandSettings(volatility_pct=10.0),
+        }
+
+        statuses = check_bands(p, target, settings)
+        s = {status.ticker: status for status in statuses}["IRIS"]
+
+        assert s.band_sigma == pytest.approx(2.5)
+        assert s.lower_band_sigma == pytest.approx(2.5)
+        assert s.upper_band_sigma == pytest.approx(2.5)
+        assert s.upper_band == pytest.approx(6.875)
+        assert s.lower_band == pytest.approx(4.125)
+        assert s.upper_tolerance == pytest.approx(6.1875)
+        assert s.lower_tolerance == pytest.approx(4.8125)
+
+    def test_asymmetric_band_sigma_override(self):
+        """Per-side sigma overrides let upper and lower bands differ."""
+        p = _make_portfolio(
+            [
+                ("IRIS", 55, 1.0, "Captor Iris Bond"),
+                ("REST", 945, 1.0, None),
+            ]
+        )
+        target = {"IRIS": 5.5, "REST": 94.5}
+        settings = {
+            "IRIS": BandSettings(
+                volatility_pct=10.0,
+                band_sigma=1.5,
+                lower_band_sigma=1.5,
+                upper_band_sigma=2.5,
+            ),
+            "REST": BandSettings(volatility_pct=10.0),
+        }
+
+        statuses = check_bands(p, target, settings)
+        s = {status.ticker: status for status in statuses}["IRIS"]
+
+        assert s.band_sigma == pytest.approx(1.5)
+        assert s.lower_band_sigma == pytest.approx(1.5)
+        assert s.upper_band_sigma == pytest.approx(2.5)
+        assert s.upper_band == pytest.approx(6.875)
+        assert s.lower_band == pytest.approx(4.675)
+        assert s.upper_tolerance == pytest.approx(6.1875)
+        assert s.lower_tolerance == pytest.approx(5.0875)
 
     def test_asset_without_volatility_skipped(self):
         """Assets with no volatility are excluded from results."""

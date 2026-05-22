@@ -11,6 +11,7 @@ from rich.text import Text
 
 from .courtage import (
     TradeFeeBreakdown,
+    resolve_courtage_profile,
     trade_fee_breakdown,
     uses_common_currency_settlement,
 )
@@ -167,24 +168,30 @@ def band_bar(
     return text
 
 
-def _format_trade(quantity: int | float, amount: float) -> tuple[str, str, str]:
+def _format_trade(
+    quantity: int | float,
+    amount: float,
+    *,
+    pending: bool = False,
+) -> tuple[str, str, str]:
     quantity_fmt = f"{quantity:,d}" if isinstance(quantity, int) else f"{quantity:,.2f}"
+    trade_label = "[#ffb300]PENDING[/#ffb300]" if pending else None
     if quantity > 0:
         return (
             f"[green]{quantity_fmt}[/green]",
             _format_amount(amount),
-            "[green]BUY[/green]",
+            trade_label or "[green]BUY[/green]",
         )
     if quantity < 0:
         return (
             f"[red]{quantity_fmt}[/red]",
             _format_amount(amount),
-            "[red]SELL[/red]",
+            trade_label or "[red]SELL[/red]",
         )
     return (
         f"[dim]{quantity_fmt}[/dim]",
         _format_amount(amount),
-        "[dim]—[/dim]",
+        trade_label or "[dim]—[/dim]",
     )
 
 
@@ -360,7 +367,9 @@ def _format_amount(amount: float, decimals: int = 0) -> str:
     return f"[dim]{amount_fmt}[/dim]"
 
 
-def _trade_label(quantity: int | float) -> str:
+def _trade_label(quantity: int | float, *, pending: bool = False) -> str:
+    if pending:
+        return "PENDING"
     if quantity > 0:
         return "BUY"
     if quantity < 0:
@@ -528,7 +537,10 @@ def _build_band_rebalance_rows(
             prices[ticker][1],
             common_currency,
             balanced_portfolio.conversion_cost,
-            courtage_profile,
+            resolve_courtage_profile(
+                courtage_profile,
+                getattr(balanced_portfolio.assets[ticker], "courtage_profile", None),
+            ),
             courtage_exempt=getattr(
                 balanced_portfolio.assets[ticker], "fractional", False
             ),
@@ -550,6 +562,7 @@ def _build_band_rebalance_rows(
 
     for ticker in balanced_portfolio.assets:
         asset = balanced_portfolio.assets[ticker]
+        pending = getattr(asset, "pending", False)
         status = plan.status_by_ticker.get(ticker)
         target = target_allocation[ticker]
         orig_target = _original_intended_target(
@@ -561,7 +574,11 @@ def _build_band_rebalance_rows(
         band_marker, band_cell, row_style = _band_indicator(status, target)
         quantity = new_units[ticker]
         amount = cost[ticker]
-        quantity_str, amount_str, trade_str = _format_trade(quantity, amount)
+        quantity_str, amount_str, trade_str = _format_trade(
+            quantity,
+            amount,
+            pending=pending,
+        )
         common_amount = common_amounts[ticker]
         courtage_class = courtage_classes[ticker]
         fx_fee = fx_fees[ticker]
@@ -602,7 +619,7 @@ def _build_band_rebalance_rows(
                 "band_marker": band_marker,
                 "band_cell": band_cell,
                 "row_style": row_style,
-                "trade": _trade_label(quantity),
+                "trade": _trade_label(quantity, pending=pending),
                 "trade_cell": trade_str,
                 "price": prices[ticker][0],
                 "price_currency": prices[ticker][1],
@@ -956,6 +973,7 @@ def _render_remaining_cash(balanced_portfolio) -> None:
     if uses_common_currency_settlement(
         getattr(balanced_portfolio, "_conversion_cost", 0.0),
         getattr(balanced_portfolio, "courtage_profile", None),
+        getattr(balanced_portfolio, "assets", {}).values(),
     ):
         common = balanced_portfolio._common_currency
         _console.print(f"  {balanced_portfolio.cash[common].amount:,.0f} {common}")

@@ -1,9 +1,11 @@
 """rebalance-monitor — cron-friendly band-drift checker.
 
 Fetches current prices for a portfolio and checks whether any asset has
-drifted outside its range-based rebalancing band (±1 std dev from target
-weight).  Designed to run on a schedule (cron / k8s CronJob) and emit a
-WARNING log signal when action is needed.
+drifted outside its configured range-based rebalancing band around the target
+weight. By default, assets use 1.5 sigma bands, and per-asset JSON overrides
+may widen or narrow the lower and upper sides separately. Designed to run on a
+schedule (cron / k8s CronJob) and emit a WARNING log signal when action is
+needed.
 
 Exit codes:
   0 — completed successfully (triggers fired or not — triggering is not an error)
@@ -19,7 +21,7 @@ from dataclasses import replace
 from loguru import logger
 from pydantic import ValidationError
 
-from rebalance.band_checker import check_bands
+from rebalance.band_checker import band_settings_by_ticker, check_bands
 from rebalance.band_rendering import (
     build_band_rebalance_report,
     render_band_rebalance_table,
@@ -251,7 +253,7 @@ def main() -> None:
     current_leverage_report = build_leverage_report(portfolio, config, basis="current")
     _log_leverage_summary(current_leverage_report)
 
-    volatilities = {asset.ticker: asset.volatility for asset in config.assets}
+    band_settings = band_settings_by_ticker(config.assets)
     try:
         withdrawal_request = detect_withdrawal_request(portfolio, args.withdrawal)
     except ValueError as e:
@@ -266,7 +268,7 @@ def main() -> None:
                 portfolio,
                 config,
                 target_allocation,
-                volatilities,
+                band_settings,
                 current_leverage_report,
                 lock_non_triggered=args.lock_non_triggered,
                 objective=args.objective,
@@ -283,7 +285,7 @@ def main() -> None:
             portfolio,
             config,
             target_allocation,
-            volatilities,
+            band_settings,
             withdrawal_request,
             current_leverage_report,
             lock_non_triggered=args.lock_non_triggered,
@@ -393,7 +395,7 @@ def main() -> None:
     )
     _log_financing_adjustment(financing_adjustment)
 
-    statuses = check_bands(planning_portfolio, target_allocation, volatilities)
+    statuses = check_bands(planning_portfolio, target_allocation, band_settings)
     triggers = _log_band_statuses(statuses)
 
     if triggers:

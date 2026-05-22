@@ -68,10 +68,15 @@ class AssetConfig(BaseModel):
     ticker: str
     quantity: float = 0
     fractional: bool = False
+    pending: bool = False
+    courtage_profile: str | None = None
     target_allocation: float = Field(ge=0, le=100)
     name: str | None = None
     isin: str | None = None
     volatility: float | None = Field(default=None, ge=1.0, le=100.0)
+    band_sigma: float = Field(default=1.5, gt=0.0)
+    lower_band_sigma: float | None = Field(default=None, gt=0.0)
+    upper_band_sigma: float | None = Field(default=None, gt=0.0)
     lending_value: float | None = Field(default=None, ge=0.0, le=100.0)
     extended_lending_value: float | None = Field(default=None, ge=0.0, le=100.0)
     interest_discount_eligible: bool | None = None
@@ -86,6 +91,11 @@ class AssetConfig(BaseModel):
             return None
         normalized = v.strip().lower().replace("-", "_").replace(" ", "_")
         return normalized or None
+
+    @field_validator("courtage_profile")
+    @classmethod
+    def normalise_courtage_profile(cls, v: str | None) -> str | None:
+        return normalize_courtage_profile(v)
 
     @model_validator(mode="after")
     def quantity_integer_when_not_fractional(self) -> "AssetConfig":

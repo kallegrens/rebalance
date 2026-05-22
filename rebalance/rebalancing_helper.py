@@ -4,7 +4,11 @@ from dataclasses import dataclass
 import cvxpy as cp
 import numpy as np
 
-from .courtage import courtage_segments, uses_common_currency_settlement
+from .courtage import (
+    courtage_segments,
+    resolve_courtage_profile,
+    uses_common_currency_settlement,
+)
 
 DEFAULT_OBJECTIVE = "relative-l1"
 SUPPORTED_OBJECTIVES = (
@@ -167,7 +171,11 @@ def rebalance(
     # accounts for this by deducting from the common currency directly.
     conversion_cost = getattr(portfolio, "_conversion_cost", 0.0)
     courtage_profile = getattr(portfolio, "_courtage_profile", None)
-    if uses_common_currency_settlement(conversion_cost, courtage_profile):
+    if uses_common_currency_settlement(
+        conversion_cost,
+        courtage_profile,
+        portfolio.assets.values(),
+    ):
         exchange_history = []
     else:
         exchange_history = balanced_portfolio._smart_exchange(currency_cost)
@@ -394,11 +402,15 @@ def _budget_constraints(portfolio, inputs: _OptimizerInputs, share_vars):
     )
     for i, ticker in enumerate(inputs.tickers):
         asset = portfolio.assets[ticker]
+        asset_courtage_profile = resolve_courtage_profile(
+            courtage_profile,
+            getattr(asset, "courtage_profile", None),
+        )
         needs_fx_fee = (
             conversion_cost > 0
             and asset.currency.upper() != inputs.common_currency.upper()
         )
-        needs_courtage_fee = courtage_profile is not None and not asset.fractional
+        needs_courtage_fee = asset_courtage_profile is not None and not asset.fractional
         if not needs_fx_fee and not needs_courtage_fee:
             continue
 
@@ -413,7 +425,7 @@ def _budget_constraints(portfolio, inputs: _OptimizerInputs, share_vars):
         if needs_courtage_fee:
             courtage_fee, courtage_constraints = _courtage_fee_constraints(
                 abs_notional,
-                courtage_profile,
+                asset_courtage_profile,
                 max_trade_notional,
                 courtage_exempt=asset.fractional,
             )

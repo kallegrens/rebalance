@@ -20,7 +20,13 @@ rebalance portfolios/my_portfolio.json
 
 The monitor command checks configured volatility bands using the total portfolio
 value, including cash. Additions and withdrawals should therefore be represented
-in the portfolio cash before running the monitor.
+in the portfolio cash before running the monitor. Assets use a default band
+width of `1.5 sigma`, where sigma is the asset's configured annualized
+volatility.
+
+Per asset, you can override the default symmetric band width with `band_sigma`,
+or set `lower_band_sigma` and `upper_band_sigma` separately for asymmetric
+bands.
 
 When a band rebalance is triggered, assets with a `0` target allocation are sold
 to zero and their proceeds become buy capacity. New positive-target assets aim
@@ -56,24 +62,34 @@ Create a JSON file describing your portfolio:
   "selling_allowed": false,
   "common_currency": "SEK",
   "conversion_cost": 0.25,
-  "courtage_profile": "nordnet_sweden",
+  "courtage_profile": "nordnet_germany_uk",
   "cash": [
     {"amount": 3000.0, "currency": "USD"},
     {"amount": 200.0, "currency": "CAD"}
   ],
   "assets": [
-    {"ticker": "XBB.TO", "quantity": 36, "target_allocation": 20},
-    {"ticker": "XIC.TO", "quantity": 64, "target_allocation": 20},
-    {"ticker": "ITOT",   "quantity": 32, "target_allocation": 36},
-    {"ticker": "IEFA",   "quantity": 8,  "target_allocation": 20},
-    {"ticker": "IEMG",   "quantity": 7,  "target_allocation": 4}
+    {"ticker": "XBB.TO", "quantity": 36, "target_allocation": 20, "volatility": 10.0},
+    {"ticker": "XIC.TO", "quantity": 64, "target_allocation": 20, "volatility": 15.0},
+    {"ticker": "ITOT",   "quantity": 32, "target_allocation": 36, "volatility": 17.5},
+    {"ticker": "IEFA",   "quantity": 8,  "target_allocation": 20, "volatility": 17.5, "band_sigma": 2.5},
+    {"ticker": "IEMG",   "quantity": 7,  "target_allocation": 4, "volatility": 20.0, "lower_band_sigma": 1.5, "upper_band_sigma": 2.5}
   ]
 }
 ```
 
-Set `courtage_profile` to `nordnet_sweden` to apply the built-in 9/49/69/99
-class schedule in the portfolio common currency. Courtage is added on top of
-any `conversion_cost` FX spread and is shown in verbose rebalance output under
+`volatility` remains the annualized standard deviation used for band sizing.
+If you omit all band sigma fields, the monitor uses `1.5 sigma`. Set
+`band_sigma` to override both sides symmetrically, or set `lower_band_sigma`
+and `upper_band_sigma` to override each side independently.
+
+Set `courtage_profile` to `nordnet_germany_uk` to apply the built-in foreign-market
+Nordnet Sweden schedule in the portfolio common currency. Use
+`nordnet_stockholm` for Swedish-listed stocks and exchange-traded products
+such as Virtune; that profile uses the 1/39/69/99 schedule with `Fast` modeled
+as a flat 99 fee. A per-asset `courtage_profile` overrides the portfolio
+default, which is useful when the same portfolio mixes German or UK listings
+with Swedish-listed products. Courtage is added on top of any
+`conversion_cost` FX spread and is shown in verbose rebalance output under
 the `Courtage`, `Courtage Fee <CCY>`, and `FX Fee <CCY>` columns. Assets marked
 with `fractional: true` are treated as courtage-free mutual funds.
 

@@ -52,9 +52,14 @@ htmlcov
 portfolios/
 # Portfolio files with real holdings (use *_redacted.json for CI)
 !portfolios/allweather_zino_redacted.json
+!portfolios/example.json
+*.json
 
 # Downloaded market data
 *.csv
+
+# Workspace
+*.code-workspace
 
 # Sphinx documentation
 docs/_build/

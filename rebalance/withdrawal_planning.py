@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from rebalance.band_checker import check_bands
+from rebalance.band_checker import BandSettings, check_bands
 from rebalance.band_targets import build_band_rebalance_plan
 from rebalance.leverage import build_leverage_report
 
@@ -291,7 +291,7 @@ def _run_withdrawal_trial(
     portfolio,
     config,
     target_allocation: Mapping[str, float],
-    volatilities: Mapping[str, float | None],
+    band_settings: Mapping[str, float | BandSettings | None],
     request: WithdrawalRequest,
     repayment_amount: float,
     *,
@@ -314,7 +314,7 @@ def _run_withdrawal_trial(
         iterations=iteration,
         tolerance=tolerance,
     )
-    statuses = check_bands(trial, target_allocation, volatilities)
+    statuses = check_bands(trial, target_allocation, band_settings)
     triggers = [status for status in statuses if status.triggered]
     cash_shortfall = float(trial.cash_value(request.currency)) < -tolerance
     should_build_trade_plan = bool(triggers) or cash_shortfall
@@ -375,7 +375,7 @@ def plan_withdrawal(
     portfolio,
     config,
     target_allocation: Mapping[str, float],
-    volatilities: Mapping[str, float | None],
+    band_settings: Mapping[str, float | BandSettings | None],
     request: WithdrawalRequest,
     current_leverage_report: dict[str, Any] | None = None,
     *,
@@ -416,7 +416,7 @@ def plan_withdrawal(
                 portfolio,
                 config,
                 target_allocation,
-                volatilities,
+                band_settings,
                 request,
                 repayment_amount,
                 lock_non_triggered=lock_non_triggered,
@@ -492,7 +492,7 @@ def compute_max_withdrawal(
     portfolio,
     config,
     target_allocation: Mapping[str, float],
-    volatilities: Mapping[str, float | None],
+    band_settings: Mapping[str, float | BandSettings | None],
     current_leverage_report: dict[str, Any],
     *,
     lock_non_triggered: bool,
@@ -537,7 +537,7 @@ def compute_max_withdrawal(
             portfolio,
             config,
             target_allocation,
-            volatilities,
+            band_settings,
             request,
             current_leverage_report,
             lock_non_triggered=lock_non_triggered,

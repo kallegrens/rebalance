@@ -1,4 +1,5 @@
 import copy
+from dataclasses import replace
 
 import numpy as np
 from loguru import logger
@@ -17,12 +18,14 @@ from .band_targets import (
 from .courtage import (
     amount_in_common_currency,
     normalize_courtage_profile,
+    resolve_courtage_profile,
     trade_fee_breakdown,
     uses_common_currency_settlement,
 )
 from .money import Cash
 
 _console = Console()
+_BAND_RETARGET_TOLERANCE = 1e-6
 
 
 def _format_fee_cell(amount: float) -> str:
@@ -281,6 +284,7 @@ class Portfolio:
             fees = self._trade_fee_breakdown(
                 cost,
                 asset.currency,
+                asset=asset,
                 courtage_exempt=asset.fractional,
             )
             self.add_cash(-converted_amount - fees.total_fee, self._common_currency)
@@ -288,11 +292,18 @@ class Portfolio:
             self.add_cash(-cost, asset.currency)
         return cost
 
+    def _effective_courtage_profile(self, asset=None):
+        return resolve_courtage_profile(
+            self._courtage_profile,
+            getattr(asset, "courtage_profile", None) if asset is not None else None,
+        )
+
     def _trade_fee_breakdown(
         self,
         amount: float,
         currency: str,
         *,
+        asset=None,
         courtage_exempt: bool = False,
     ):
         return trade_fee_breakdown(
@@ -300,7 +311,7 @@ class Portfolio:
             currency,
             self._common_currency,
             self._conversion_cost,
-            self._courtage_profile,
+            self._effective_courtage_profile(asset),
             courtage_exempt=courtage_exempt,
         )
 
@@ -308,6 +319,7 @@ class Portfolio:
         return uses_common_currency_settlement(
             self._conversion_cost,
             self._courtage_profile,
+            self._assets.values(),
         )
 
     def exchange_currency(
@@ -412,6 +424,7 @@ class Portfolio:
             fees = balanced_portfolio._trade_fee_breakdown(
                 amt,
                 prices[ticker][1],
+                asset=asset,
                 courtage_exempt=asset.fractional,
             )
             qty_fmt = f"{qty:,d}" if isinstance(qty, int) else f"{qty:,.2f}"
@@ -481,6 +494,83 @@ class Portfolio:
             for cash in balanced_portfolio.cash.values():
                 _console.print(f"  {cash.amount:,.0f} {cash.currency}")
 
+    def _retarget_fractional_band_slack(
+        self,
+        plan: RebalancePlan,
+        balanced_portfolio,
+    ) -> RebalancePlan:
+        """Reassign integer underfill to tradable fractional assets with band room."""
+        common = balanced_portfolio._common_currency
+        common_cash = 0.0
+        for cash in balanced_portfolio.cash.values():
+            if abs(cash.amount) <= _BAND_RETARGET_TOLERANCE:
+                continue
+            if cash.currency != common:
+                return plan
+            common_cash += cash.amount
+
+        if common_cash <= _BAND_RETARGET_TOLERANCE:
+            return plan
+
+        portfolio_value = balanced_portfolio.value(common)
+        if portfolio_value <= 0.0:
+            return plan
+
+        achieved_allocation = cash_inclusive_allocation(balanced_portfolio)
+        reducible_targets = {
+            ticker: plan.effective_targets[ticker]
+            - achieved_allocation.get(ticker, 0.0)
+            for ticker, asset in self.assets.items()
+            if not asset.fractional
+            and plan.effective_targets.get(ticker, 0.0)
+            > achieved_allocation.get(ticker, 0.0) + _BAND_RETARGET_TOLERANCE
+        }
+        total_reducible = sum(reducible_targets.values())
+        if total_reducible <= _BAND_RETARGET_TOLERANCE:
+            return plan
+
+        recipient_headroom = {}
+        for ticker, asset in self.assets.items():
+            if not asset.fractional or ticker in plan.locked_tickers:
+                continue
+            if plan.effective_targets.get(ticker, 0.0) <= 0.0:
+                continue
+            status = plan.status_by_ticker.get(ticker)
+            upper_band = status.upper_band if status is not None else 100.0
+            current_target = max(
+                plan.effective_targets[ticker], achieved_allocation.get(ticker, 0.0)
+            )
+            headroom = upper_band - current_target
+            if headroom > _BAND_RETARGET_TOLERANCE:
+                recipient_headroom[ticker] = headroom
+
+        total_headroom = sum(recipient_headroom.values())
+        if total_headroom <= _BAND_RETARGET_TOLERANCE:
+            return plan
+
+        transferable_pct = min(
+            common_cash / portfolio_value * 100.0,
+            total_reducible,
+            total_headroom,
+        )
+        if transferable_pct <= _BAND_RETARGET_TOLERANCE:
+            return plan
+
+        adjusted_targets = dict(plan.effective_targets)
+        donor_scale = transferable_pct / total_reducible
+        for ticker, gap in reducible_targets.items():
+            adjusted_targets[ticker] -= gap * donor_scale
+
+        recipient_scale = transferable_pct / total_headroom
+        for ticker, headroom in recipient_headroom.items():
+            adjusted_targets[ticker] += headroom * recipient_scale
+
+        logger.debug(
+            "Retargeting {:.4f}% of band slack into fractional assets",
+            transferable_pct,
+        )
+        return replace(plan, effective_targets=adjusted_targets)
+
     def _execute_rebalance_plan(
         self,
         plan: RebalancePlan,
@@ -503,6 +593,22 @@ class Portfolio:
         )
 
         if band_mode:
+            adjusted_plan = self._retarget_fractional_band_slack(
+                plan, balanced_portfolio
+            )
+            if adjusted_plan is not plan:
+                plan = adjusted_plan
+                balanced_portfolio, new_units, prices, cost, exchange_history = (
+                    rebalancing_helper.rebalance(
+                        self,
+                        plan.effective_targets,
+                        sellable_tickers=plan.sellable_tickers,
+                        band_limits=plan.band_limits,
+                        locked_tickers=plan.locked_tickers,
+                        forced_trades=plan.forced_trades,
+                        objective=objective,
+                    )
+                )
             new_allocation = cash_inclusive_allocation(balanced_portfolio)
             if verbose:
                 render_band_rebalance_table(
