@@ -24,6 +24,7 @@ from rebalance.band_rendering import (
 def _status(**overrides):
     defaults = {
         "direction": None,
+        "target_pct": 50.0,
         "current_pct": 50.0,
         "lower_tolerance": 45.0,
         "upper_tolerance": 55.0,
@@ -32,6 +33,10 @@ def _status(**overrides):
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _bar_idx(lower_band: float, upper_band: float, value: float) -> int:
+    return 1 + int((value - lower_band) / (upper_band - lower_band) * _BAR_INNER)
 
 
 def test_new_asset_uses_blue_diamond_marker():
@@ -100,42 +105,63 @@ def test_band_bar_shows_original_target_marker():
     assert "◇" in bar.plain
 
 
-def test_band_bar_uses_even_quartile_guide_spacing():
+def test_band_bar_places_guides_from_actual_asymmetric_values():
+    status = _status(
+        direction=None,
+        target_pct=5.5,
+        lower_band=4.675,
+        upper_band=6.875,
+        lower_tolerance=5.0875,
+        upper_tolerance=6.1875,
+    )
+
+    bar = band_bar(4.675, 4.0, 4.675, None, 4.675, status)
+
+    assert bar.plain.index("┤") == _bar_idx(4.675, 6.875, 5.0875)
+    assert bar.plain.index("│") == _bar_idx(4.675, 6.875, 5.5)
+    assert bar.plain.index("├") == _bar_idx(4.675, 6.875, 6.1875)
+
+
+def test_band_bar_keeps_symmetric_guides_at_quartiles():
     status = _status(direction=None)
 
-    bar = band_bar(42.0, 49.0, 56.0, None, 44.0, status)
+    bar = band_bar(40.0, 39.0, 40.0, None, 40.0, status)
 
     assert bar.plain.index("┤") == 1 + int(0.25 * _BAR_INNER)
     assert bar.plain.index("│") == 1 + int(0.50 * _BAR_INNER)
     assert bar.plain.index("├") == 1 + int(0.75 * _BAR_INNER)
 
 
-def test_band_bar_snaps_above_original_target_to_upper_midpoint():
+def test_band_bar_places_above_original_target_at_actual_tolerance():
     status = _status(
         direction="above",
-        current_pct=1.98,
-        lower_band=1.105,
-        upper_band=1.495,
-        upper_tolerance=1.3975,
+        target_pct=3.9,
+        current_pct=8.2737,
+        lower_band=3.0225,
+        upper_band=5.3625,
+        lower_tolerance=3.46125,
+        upper_tolerance=4.63125,
     )
 
-    bar = band_bar(2.16, 1.98, 1.36, 1.3975, 1.36, status)
+    bar = band_bar(9.4563, 8.2737, 4.2583, 4.63125, 4.3772, status)
 
-    assert bar.plain.index("◇") == 1 + int(0.75 * _BAR_INNER)
+    assert bar.plain.index("◇") == _bar_idx(3.0225, 5.3625, 4.63125)
 
 
-def test_band_bar_snaps_new_asset_original_target_to_target_marker():
+def test_band_bar_places_new_asset_original_target_at_actual_target():
     status = _status(
         direction="below",
         current_pct=0.0,
-        lower_band=4.81,
-        upper_band=6.39,
-        lower_tolerance=5.205,
+        target_pct=5.5,
+        lower_band=4.675,
+        upper_band=6.875,
+        lower_tolerance=5.0875,
+        upper_tolerance=6.1875,
     )
 
-    bar = band_bar(0.0, 0.0, 5.40, 5.60, 5.42, status)
+    bar = band_bar(0.0, 0.0, 5.40, 5.50, 5.42, status)
 
-    assert bar.plain.index("◇") == 1 + int(0.50 * _BAR_INNER)
+    assert bar.plain.index("◇") == _bar_idx(4.675, 6.875, 5.50)
 
 
 def test_format_trade_uses_two_decimals_for_fractional_units():

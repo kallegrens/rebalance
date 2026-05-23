@@ -16,6 +16,50 @@ pip install rebalance
 rebalance portfolios/my_portfolio.json
 ```
 
+## Notifications
+
+`rebalance` and `rebalance-monitor` can send notifications through Apprise.
+The recommended setup is Apprise in the app, a self-hosted ntfy destination for
+iPhone push, and optional e-mail destinations in the same Apprise config.
+
+The notification hooks read configuration in this order:
+
+1. `REBALANCE_APPRISE_URLS` for one or more whitespace-delimited Apprise URLs
+2. `REBALANCE_APPRISE_CONFIG` for an explicit Apprise config file or URL
+3. Apprise's default config discovery paths such as `~/.config/apprise.yml`
+
+If rebalance discovers a default Apprise config on its own and you did not set a
+tag override, it sends with the Apprise tag `rebalance` so a shared global
+Apprise config does not accidentally fan out unrelated notifications.
+
+Quick start with a single ntfy destination:
+
+```bash
+export REBALANCE_APPRISE_URLS='ntfys://ntfy.example.com/your-secret-topic'
+rebalance-monitor portfolios/my_portfolio.json
+```
+
+Recommended Apprise config for ntfy plus e-mail fan-out:
+
+```text
+# ~/.config/apprise/apprise.conf
+rebalance,rebalance-trigger=ntfys://ntfy.example.com/your-secret-topic
+rebalance,rebalance-failure=ntfys://ntfy.example.com/your-secret-topic
+rebalance,rebalance-failure=mailtos://_?user=alerts@example.com&pass=app-password&smtp=smtp.example.com&from=alerts@example.com&to=you@example.com
+```
+
+Optional routing overrides:
+
+```bash
+export REBALANCE_NOTIFY_TRIGGER_TAG=rebalance-trigger
+export REBALANCE_NOTIFY_FAILURE_TAG=rebalance-failure
+```
+
+Privacy note for iPhone push: if you self-host ntfy and want instant iOS
+delivery, ntfy still forwards a minimal poll request to `ntfy.sh` so Apple can
+wake the phone. The full notification body stays on your ntfy server and is
+fetched from there over HTTPS.
+
 ## Band-aware monitoring
 
 The monitor command checks configured volatility bands using the total portfolio

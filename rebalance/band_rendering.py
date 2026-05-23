@@ -101,23 +101,17 @@ def band_bar(
     def to_idx(value: float) -> int:
         return to_inner_idx((value - lower_band) / span)
 
-    def midpoint_idx(fraction: float) -> int:
-        return to_inner_idx(fraction)
-
     chars: list[str] = ["─"] * inner
-    chars[midpoint_idx(0.25)] = "┤"
-    chars[midpoint_idx(0.50)] = "│"
-    chars[midpoint_idx(0.75)] = "├"
+    guide_chars: dict[int, str] = {
+        to_idx(status.lower_tolerance): "┤",
+        to_idx(status.target_pct): "│",
+    }
+    guide_chars.setdefault(to_idx(status.upper_tolerance), "├")
+    for idx, char in guide_chars.items():
+        chars[idx] = char
 
     if orig_target is not None:
-        if status.direction == "above":
-            orig_idx = midpoint_idx(0.75)
-        elif status.direction == "below" and current_pct <= 1e-9:
-            orig_idx = midpoint_idx(0.50)
-        elif status.direction == "below":
-            orig_idx = midpoint_idx(0.25)
-        else:
-            orig_idx = to_idx(max(lower_band, min(upper_band, orig_target)))
+        orig_idx = to_idx(max(lower_band, min(upper_band, orig_target)))
         if chars[orig_idx] in {"─", "┤", "│", "├"}:
             chars[orig_idx] = "◇"
 

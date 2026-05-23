@@ -1,114 +1,321 @@
-"""Failure notification hook for rebalance.
+"""Apprise-backed notification hooks for rebalance.
 
-:func:`notify_failure` is called when a run fails unrecoverably.  Right now
-it only logs the error; wire up a real notification channel here when needed.
+The rebalance CLI uses two notification events:
 
-## How to add a notification channel
+- unrecoverable command failures
+- band-monitor triggers when one or more assets drift outside their bands
 
-Pick one of the approaches below and implement it inside ``notify_failure``.
+Notifications are routed through Apprise so the application code stays agnostic
+about the actual delivery services. The recommended setup is a self-hosted ntfy
+destination for phone push and optional e-mail destinations in the same Apprise
+configuration.
 
-### Option A — Email via SMTP (stdlib)
+Configuration sources are resolved in this order:
 
-    import smtplib, ssl
-    from email.message import EmailMessage
+1. ``REBALANCE_APPRISE_URLS``: whitespace-delimited Apprise URLs
+2. ``REBALANCE_APPRISE_CONFIG``: explicit Apprise config file or URL
+3. Apprise's default local config discovery paths
 
-    msg = EmailMessage()
-    msg["Subject"] = f"rebalance run failed: {type(exc).__name__}"
-    msg["From"] = os.environ["NOTIFY_FROM"]
-    msg["To"] = os.environ["NOTIFY_TO"]
-    msg.set_content(f"{context}\\n\\n{exc}")
+Optional tag routing env vars:
 
-    with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], 465,
-                           context=ssl.create_default_context()) as s:
-        s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
-        s.send_message(msg)
+- ``REBALANCE_NOTIFY_TAG``
+- ``REBALANCE_NOTIFY_FAILURE_TAG``
+- ``REBALANCE_NOTIFY_TRIGGER_TAG``
 
-### Option B — Apprise (meta-library: Slack, Teams, Gotify, ntfy, …)
-
-    import apprise  # pip install apprise
-
-    ap = apprise.Apprise()
-    ap.add(os.environ["APPRISE_URL"])   # e.g. "slack://token/channel"
-    ap.notify(title="rebalance failed", body=str(exc))
-
-### Option C — ntfy.sh (simple HTTP push)
-
-    import httpx
-
-    httpx.post(
-        f"https://ntfy.sh/{os.environ['NTFY_TOPIC']}",
-        content=f"rebalance failed: {exc}",
-        headers={"Title": "rebalance run failed", "Priority": "high"},
-    )
-
-### Option D — Healthchecks.io (cron-job style, ping on success / silence = alert)
-
-    import httpx
-
-    # Call this on SUCCESS (not failure) to signal the cron is alive:
-    #   httpx.get(os.environ["HC_PING_URL"])
-    # Call this on FAILURE to signal a failed run:
-    httpx.get(os.environ["HC_PING_URL"] + "/fail")
+If a config file is discovered via the default Apprise paths and no tag env var
+is set, notifications are sent with the tag ``rebalance`` so a shared global
+Apprise config does not accidentally notify unrelated destinations.
 """
+
+from __future__ import annotations
+
+import os
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
+_ENV_APPRISE_CONFIG = "REBALANCE_APPRISE_CONFIG"
+_ENV_APPRISE_URLS = "REBALANCE_APPRISE_URLS"
+_ENV_NOTIFY_TAG = "REBALANCE_NOTIFY_TAG"
+_ENV_NOTIFY_FAILURE_TAG = "REBALANCE_NOTIFY_FAILURE_TAG"
+_ENV_NOTIFY_TRIGGER_TAG = "REBALANCE_NOTIFY_TRIGGER_TAG"
+_DEFAULT_DISCOVERY_TAG = "rebalance"
+_MAX_ERROR_SUMMARY_LENGTH = 400
+_MAX_TRIGGER_LINES = 8
+
+
+@dataclass(frozen=True)
+class _NotificationSource:
+    urls: tuple[str, ...] = ()
+    config: str | None = None
+    discovered_config: bool = False
+
+
+def _split_apprise_urls(raw_urls: str | None) -> tuple[str, ...]:
+    if raw_urls is None:
+        return ()
+    return tuple(part.strip() for part in raw_urls.split() if part.strip())
+
+
+def _default_config_candidates() -> tuple[str, ...]:
+    home = Path.home()
+
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        common_program_files = os.environ.get("COMMONPROGRAMFILES")
+        program_files = os.environ.get("PROGRAMFILES")
+        program_data = os.environ.get("ALLUSERSPROFILE")
+        candidates = [
+            home / "Apprise" / "apprise.conf",
+            home / "Apprise" / "apprise.yaml",
+        ]
+        for env_dir in (
+            appdata,
+            local_appdata,
+            program_data,
+            program_files,
+            common_program_files,
+        ):
+            if env_dir:
+                base = Path(env_dir) / "Apprise"
+                candidates.extend(
+                    [
+                        base / "apprise.conf",
+                        base / "apprise.yaml",
+                    ]
+                )
+        return tuple(str(path) for path in candidates)
+
+    return (
+        str(home / ".apprise"),
+        str(home / ".apprise.conf"),
+        str(home / ".apprise.yml"),
+        str(home / ".apprise.yaml"),
+        str(home / ".config" / "apprise"),
+        str(home / ".config" / "apprise.conf"),
+        str(home / ".config" / "apprise.yml"),
+        str(home / ".config" / "apprise.yaml"),
+        str(home / ".apprise" / "apprise"),
+        str(home / ".apprise" / "apprise.conf"),
+        str(home / ".apprise" / "apprise.yml"),
+        str(home / ".apprise" / "apprise.yaml"),
+        str(home / ".config" / "apprise" / "apprise"),
+        str(home / ".config" / "apprise" / "apprise.conf"),
+        str(home / ".config" / "apprise" / "apprise.yml"),
+        str(home / ".config" / "apprise" / "apprise.yaml"),
+        "/etc/apprise",
+        "/etc/apprise.yml",
+        "/etc/apprise.yaml",
+        "/etc/apprise/apprise",
+        "/etc/apprise/apprise.conf",
+        "/etc/apprise/apprise.yml",
+        "/etc/apprise/apprise.yaml",
+    )
+
+
+def _discover_default_config() -> str | None:
+    for candidate in _default_config_candidates():
+        path = Path(candidate).expanduser()
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def _resolve_notification_source() -> _NotificationSource:
+    urls = _split_apprise_urls(os.environ.get(_ENV_APPRISE_URLS))
+    explicit_config = (os.environ.get(_ENV_APPRISE_CONFIG) or "").strip() or None
+
+    if explicit_config is not None:
+        return _NotificationSource(urls=urls, config=explicit_config)
+
+    discovered_config = _discover_default_config()
+    return _NotificationSource(
+        urls=urls,
+        config=discovered_config,
+        discovered_config=discovered_config is not None,
+    )
+
+
+def _load_apprise_module() -> Any | None:
+    try:
+        import apprise
+    except ImportError:
+        logger.warning(
+            "Apprise is not installed; dropping notification. Run `uv sync` or reinstall the package to enable notifications."
+        )
+        return None
+
+    return apprise
+
+
+def _resolve_tag(event: str, source: _NotificationSource) -> str | None:
+    event_override = {
+        "failure": _ENV_NOTIFY_FAILURE_TAG,
+        "trigger": _ENV_NOTIFY_TRIGGER_TAG,
+    }.get(event)
+
+    if event_override is not None:
+        override_value = (os.environ.get(event_override) or "").strip()
+        if override_value:
+            return override_value
+
+    generic_value = (os.environ.get(_ENV_NOTIFY_TAG) or "").strip()
+    if generic_value:
+        return generic_value
+
+    if source.discovered_config:
+        return _DEFAULT_DISCOVERY_TAG
+
+    return None
+
+
+def _build_notifier(source: _NotificationSource) -> Any | None:
+    if not source.urls and source.config is None:
+        logger.debug("No Apprise notification target configured; notification dropped.")
+        return None
+
+    apprise = _load_apprise_module()
+    if apprise is None:
+        return None
+
+    notifier = apprise.Apprise()
+    configured = False
+
+    for url in source.urls:
+        configured = bool(notifier.add(url)) or configured
+
+    if source.config is not None:
+        config = apprise.AppriseConfig()
+        if config.add(source.config):
+            configured = bool(notifier.add(config)) or configured
+        else:
+            logger.warning(
+                "Failed to load the Apprise config source; notification dropped."
+            )
+
+    if not configured:
+        logger.warning("No valid Apprise targets were loaded; notification dropped.")
+        return None
+
+    return notifier
+
+
+def _current_command() -> str:
+    if not sys.argv:
+        return "rebalance"
+    command = Path(sys.argv[0]).name.strip()
+    return command or "rebalance"
+
+
+def _collapse_text(value: str) -> str:
+    collapsed = " ".join(value.split())
+    if len(collapsed) <= _MAX_ERROR_SUMMARY_LENGTH:
+        return collapsed
+    return collapsed[: _MAX_ERROR_SUMMARY_LENGTH - 3] + "..."
+
+
+def _failure_hint(exc: BaseException) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return "Verify the portfolio path exists and is readable."
+    if type(exc).__name__ == "ValidationError":
+        return "Fix the portfolio JSON validation errors and rerun the command."
+    return "Inspect the command output, fix the issue, and rerun the command."
+
+
+def _format_failure_message(exc: BaseException, context: str) -> tuple[str, str]:
+    command = _current_command()
+    title = f"{command} failed ({type(exc).__name__})"
+    lines = [f"Command: {command}"]
+
+    if context:
+        lines.append(f"Portfolio: {context}")
+
+    summary = _collapse_text(str(exc))
+    if summary:
+        lines.append(f"Error: {summary}")
+
+    lines.append(f"Action: {_failure_hint(exc)}")
+    return title, "\n".join(lines)
+
+
+def _format_pct(value: Any) -> str:
+    try:
+        return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _format_trigger_line(trigger: Any) -> str:
+    ticker = getattr(trigger, "ticker", None) or getattr(trigger, "name", "unknown")
+    direction = getattr(trigger, "direction", None) or "outside"
+    return (
+        f"{ticker}: {_format_pct(getattr(trigger, 'current_pct', None))} vs "
+        f"target {_format_pct(getattr(trigger, 'target_pct', None))} "
+        f"({direction}; band {_format_pct(getattr(trigger, 'lower_band', None))} - "
+        f"{_format_pct(getattr(trigger, 'upper_band', None))})"
+    )
+
+
+def _format_trigger_message(triggers: Sequence[Any]) -> tuple[str, str]:
+    count = len(triggers)
+    noun = "asset" if count == 1 else "assets"
+    command = _current_command()
+    title = f"Rebalance trigger: {count} {noun} outside bands"
+    lines = [f"Command: {command}"]
+
+    display_triggers = triggers[:_MAX_TRIGGER_LINES]
+    lines.extend(_format_trigger_line(trigger) for trigger in display_triggers)
+
+    extra_count = count - len(display_triggers)
+    if extra_count > 0:
+        lines.append(f"+{extra_count} more triggered {noun}")
+
+    return title, "\n".join(lines)
+
+
+def _send_notification(event: str, title: str, body: str) -> None:
+    source = _resolve_notification_source()
+    notifier = _build_notifier(source)
+    if notifier is None:
+        logger.debug("Dropped {} notification: {}", event, title)
+        return
+
+    notify_kwargs: dict[str, Any] = {"title": title, "body": body}
+    tag = _resolve_tag(event, source)
+    if tag is not None:
+        notify_kwargs["tag"] = tag
+
+    try:
+        delivered = bool(notifier.notify(**notify_kwargs))
+    except Exception:
+        logger.opt(exception=True).warning(
+            "Notification delivery failed for {} event.", event
+        )
+        return
+
+    if not delivered:
+        logger.warning(
+            "Notification delivery returned no successful destinations for {} event.",
+            event,
+        )
+
 
 def notify_failure(exc: BaseException, context: str = "") -> None:
-    """Called when a rebalance run fails unrecoverably.
-
-    Currently a no-op beyond logging; see module docstring for how to wire up
-    a real notification channel.
-
-    Args:
-        exc: The exception that caused the failure.
-        context: Optional extra context string (e.g. portfolio filename).
-    """
-    logger.debug(
-        "notify_failure called (no notifier configured): {} — {}",
-        type(exc).__name__,
-        context or "no context",
-    )
+    """Send a failure notification for an unrecoverable command error."""
+    title, body = _format_failure_message(exc, context)
+    _send_notification("failure", title, body)
 
 
 def notify_rebalance_trigger(triggers: list) -> None:
-    """Called when one or more assets have drifted outside their rebalancing bands.
+    """Send a notification when one or more assets drift outside their bands."""
+    if not triggers:
+        logger.debug("notify_rebalance_trigger called with no triggers.")
+        return
 
-    Currently a no-op beyond logging; wire up a real notification channel here
-    using any of the patterns shown in the module docstring above.
-
-    Example implementations:
-
-    ### Option A — ntfy.sh
-
-        import httpx
-
-        body = "\\n".join(
-            f"{t.ticker}: {t.current_pct:.2f}% vs target {t.target_pct:.2f}% "
-            f"({'above' if t.direction == 'above' else 'below'} band)"
-            for t in triggers
-        )
-        httpx.post(
-            f"https://ntfy.sh/{os.environ['NTFY_TOPIC']}",
-            content=body,
-            headers={"Title": "Rebalancing required", "Priority": "high"},
-        )
-
-    ### Option B — Apprise
-
-        import apprise
-
-        ap = apprise.Apprise()
-        ap.add(os.environ["APPRISE_URL"])
-        ap.notify(
-            title="Rebalancing required",
-            body="\\n".join(f"{t.ticker} is {t.direction} its band" for t in triggers),
-        )
-
-    Args:
-        triggers: List of BandStatus objects with ``triggered=True``.
-    """
-    logger.debug(
-        "notify_rebalance_trigger called (no notifier configured): {} trigger(s)",
-        len(triggers),
-    )
+    title, body = _format_trigger_message(triggers)
+    _send_notification("trigger", title, body)
