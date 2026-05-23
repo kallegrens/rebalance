@@ -132,7 +132,7 @@ jobs:
 
   publish-container:
     name: Publish Container to GHCR
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write # Required to push the container image to GHCR
