@@ -16,6 +16,12 @@ from tenacity import (
 from .money import Price
 
 
+def _callable_name(fn: object | None) -> str:
+    if fn is None:
+        return "?"
+    return getattr(fn, "__name__", type(fn).__name__)
+
+
 def fetch_yfinance_price(ticker: str) -> Price:
     """Fetch the latest price for *ticker* via yfinance.
 
@@ -38,7 +44,7 @@ def fetch_yfinance_price(ticker: str) -> Price:
     stop=stop_after_attempt(3),
     before_sleep=lambda rs: logger.warning(
         "Retrying {} (attempt {}): {}",
-        rs.fn.__name__ if rs.fn is not None else "?",
+        _callable_name(rs.fn),
         rs.attempt_number,
         rs.outcome.exception() if rs.outcome is not None else "unknown error",
     ),
