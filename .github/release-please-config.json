@@ -9,8 +9,9 @@
         {
           "type": "toml",
           "path": "uv.lock",
-          "jsonpath": "$.package[?(@.name=='rebalance')].version"
-        }
+          "jsonpath": "$.package[?(@.name.value=='rebalance')].version"
+        },
+        "README.md"
       ],
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
