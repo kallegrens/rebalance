@@ -1,4 +1,5 @@
 import copy
+import os
 from dataclasses import dataclass
 
 import cvxpy as cp
@@ -11,6 +12,7 @@ from .courtage import (
 )
 
 DEFAULT_OBJECTIVE = "relative-l1"
+OBJECTIVE_ENV_VAR = "REBALANCE_OBJECTIVE"
 SUPPORTED_OBJECTIVES = (
     "absolute-l1",
     "relative-l1",
@@ -200,6 +202,13 @@ def normalize_objective(objective: str) -> str:
             f"Unsupported objective '{objective}'. Choose one of: {choices}."
         )
     return normalized
+
+
+def objective_default_from_env() -> str:
+    configured = (os.environ.get(OBJECTIVE_ENV_VAR) or "").strip()
+    if not configured:
+        return DEFAULT_OBJECTIVE
+    return normalize_objective(configured)
 
 
 def _relative_error_scales(

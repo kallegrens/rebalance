@@ -36,7 +36,12 @@ from rebalance.leverage import (
 from rebalance.loader import load_portfolio, load_portfolio_config
 from rebalance.logging_setup import setup_logging
 from rebalance.notifications import notify_failure, notify_rebalance_trigger
-from rebalance.rebalancing_helper import DEFAULT_OBJECTIVE, SUPPORTED_OBJECTIVES
+from rebalance.rebalancing_helper import (
+    DEFAULT_OBJECTIVE,
+    OBJECTIVE_ENV_VAR,
+    SUPPORTED_OBJECTIVES,
+    objective_default_from_env,
+)
 from rebalance.withdrawal_planning import (
     compute_max_withdrawal,
     detect_withdrawal_request,
@@ -212,8 +217,11 @@ def main() -> None:
     parser.add_argument(
         "--objective",
         choices=SUPPORTED_OBJECTIVES,
-        default=DEFAULT_OBJECTIVE,
-        help="Optimizer objective to use for trade selection.",
+        default=None,
+        help=(
+            "Optimizer objective to use for trade selection. Defaults to "
+            f"${OBJECTIVE_ENV_VAR} when set, otherwise {DEFAULT_OBJECTIVE}."
+        ),
     )
     parser.add_argument(
         "--withdrawal",
@@ -233,6 +241,12 @@ def main() -> None:
         help="Also write a JSON representation of the rebalance table to PATH.",
     )
     args = parser.parse_args()
+
+    if args.objective is None:
+        try:
+            args.objective = objective_default_from_env()
+        except ValueError as e:
+            parser.error(f"{OBJECTIVE_ENV_VAR}: {e}")
 
     try:
         portfolio, target_allocation = load_portfolio(args.portfolio)

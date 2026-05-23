@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -65,6 +66,41 @@ class TestCLI:
         path.write_text(json.dumps(_portfolio_json()))
         with patch("sys.argv", ["rebalance", str(path), "--objective", "relative-l2"]):
             main()
+
+    def test_objective_env_var_is_used_when_flag_missing(self):
+        portfolio = Mock()
+
+        with (
+            patch.dict(os.environ, {"REBALANCE_OBJECTIVE": "relative_l2"}),
+            patch("sys.argv", ["rebalance", "p.json"]),
+            patch(
+                "rebalance.__main__.load_portfolio",
+                return_value=(portfolio, {"AAA": 100.0}),
+            ),
+        ):
+            main()
+
+        _, kwargs = portfolio.rebalance.call_args
+        assert kwargs["objective"] == "relative-l2"
+
+    def test_objective_arg_overrides_invalid_env_var(self):
+        portfolio = Mock()
+
+        with (
+            patch.dict(os.environ, {"REBALANCE_OBJECTIVE": "not-an-objective"}),
+            patch(
+                "sys.argv",
+                ["rebalance", "p.json", "--objective", "relative-l2"],
+            ),
+            patch(
+                "rebalance.__main__.load_portfolio",
+                return_value=(portfolio, {"AAA": 100.0}),
+            ),
+        ):
+            main()
+
+        _, kwargs = portfolio.rebalance.call_args
+        assert kwargs["objective"] == "relative-l2"
 
     def test_missing_file_exits_1(self):
         with patch("sys.argv", ["rebalance", "/no/such/file.json"]):
@@ -200,6 +236,13 @@ class TestMonitorCLI:
 
         _, kwargs = portfolio.band_rebalance.call_args
         assert kwargs["lock_non_triggered"] is False
+
+    def test_monitor_objective_env_var_is_used_when_flag_missing(self):
+        with patch.dict(os.environ, {"REBALANCE_OBJECTIVE": "relative_l2"}):
+            portfolio = self._run_monitor(["rebalance-monitor", "p.json"])
+
+        _, kwargs = portfolio.band_rebalance.call_args
+        assert kwargs["objective"] == "relative-l2"
 
     def test_monitor_without_json_does_not_prebuild_plan(self):
         portfolio = Mock()

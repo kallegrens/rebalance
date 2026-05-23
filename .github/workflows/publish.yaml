@@ -1,5 +1,5 @@
 ---
-name: Publish to PyPI
+name: Publish Artifacts
 
 "on":
   release:
@@ -42,10 +42,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
 
       - name: Install just
-        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
       - name: Build package
         run: uv run just build
@@ -129,3 +129,45 @@ jobs:
           gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
           gh release upload "$GITHUB_REF_NAME" \
             dist/*.whl dist/*.tar.gz dist/sbom.spdx.json dist/SHA256SUMS LICENSE
+
+  publish-container:
+    name: Publish Container to GHCR
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write # Required to push the container image to GHCR
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build container image
+        id: build-image
+        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2.13
+        with:
+          image: rebalance
+          tags: |
+            ${{ github.ref_name }} latest
+          context: .
+          containerfiles: |
+            ./Containerfile
+          oci: true
+          platforms: linux/amd64
+          labels: |
+            org.opencontainers.image.description=Portfolio rebalancing and band-monitor CLI
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+          extra-args: |
+            --pull-always
+
+      - name: Push container image to GHCR
+        id: push-container
+        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c # v2.8
+        with:
+          registry: ghcr.io/${{ github.repository_owner }}
+          image: ${{ steps.build-image.outputs.image }}
+          tags: ${{ steps.build-image.outputs.tags }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}

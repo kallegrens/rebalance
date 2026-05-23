@@ -34,10 +34,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --group dev
+        run: uv sync --locked --group dev
 
       - name: Install just
-        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
       - name: Build package
         run: uv run just build
@@ -48,3 +48,31 @@ jobs:
           name: dist
           path: dist/
           retention-days: 7
+
+  container:
+    name: Build Container Image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build container image
+        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2.13
+        with:
+          image: rebalance
+          tags: pr-${{ github.event.pull_request.number }}
+          context: .
+          containerfiles: |
+            ./Containerfile
+          oci: true
+          platforms: linux/amd64
+          labels: |
+            org.opencontainers.image.description=Portfolio rebalancing and band-monitor CLI
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          extra-args: |
+            --pull-always

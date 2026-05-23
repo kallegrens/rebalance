@@ -7,7 +7,12 @@ from pydantic import ValidationError
 from rebalance.loader import load_portfolio
 from rebalance.logging_setup import setup_logging
 from rebalance.notifications import notify_failure
-from rebalance.rebalancing_helper import DEFAULT_OBJECTIVE, SUPPORTED_OBJECTIVES
+from rebalance.rebalancing_helper import (
+    DEFAULT_OBJECTIVE,
+    OBJECTIVE_ENV_VAR,
+    SUPPORTED_OBJECTIVES,
+    objective_default_from_env,
+)
 
 
 def main():
@@ -23,10 +28,19 @@ def main():
     parser.add_argument(
         "--objective",
         choices=SUPPORTED_OBJECTIVES,
-        default=DEFAULT_OBJECTIVE,
-        help="Optimizer objective to use for trade selection.",
+        default=None,
+        help=(
+            "Optimizer objective to use for trade selection. Defaults to "
+            f"${OBJECTIVE_ENV_VAR} when set, otherwise {DEFAULT_OBJECTIVE}."
+        ),
     )
     args = parser.parse_args()
+
+    if args.objective is None:
+        try:
+            args.objective = objective_default_from_env()
+        except ValueError as e:
+            parser.error(f"{OBJECTIVE_ENV_VAR}: {e}")
 
     try:
         portfolio, target_allocation = load_portfolio(args.portfolio)

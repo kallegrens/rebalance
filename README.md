@@ -7,7 +7,20 @@ To use it, install the package and write a portfolio JSON file as described belo
 ## Installation
 
 ```bash
+uv tool install rebalance
+```
+
+If you prefer a traditional package install instead of a uv-managed tool, use:
+
+```bash
 pip install rebalance
+```
+
+Release images are also published to GHCR:
+
+```bash
+podman pull ghcr.io/kallegrens/rebalance:latest
+podman pull ghcr.io/kallegrens/rebalance:v0.4.0
 ```
 
 ## Usage
@@ -15,6 +28,56 @@ pip install rebalance
 ```bash
 rebalance portfolios/my_portfolio.json
 ```
+
+Set `REBALANCE_OBJECTIVE` to change the default optimizer objective for both
+`rebalance` and `rebalance-monitor`. An explicit `--objective` flag still wins.
+
+## Container usage
+
+The container image defaults to running `rebalance-monitor /config/portfolio.json`.
+Mount your portfolio JSON at `/config/portfolio.json` and pass any additional
+monitor flags after the image name.
+
+```bash
+podman run --rm \
+  -e REBALANCE_APPRISE_URLS='ntfys://ntfy.example.com/your-secret-topic' \
+  -v "$(pwd)/portfolios/my_portfolio.json:/config/portfolio.json:ro" \
+  ghcr.io/kallegrens/rebalance:latest
+
+podman run --rm \
+  -e REBALANCE_APPRISE_URLS='ntfys://ntfy.example.com/your-secret-topic' \
+  -v "$(pwd)/portfolios/my_portfolio.json:/config/portfolio.json:ro" \
+  ghcr.io/kallegrens/rebalance:latest \
+  --trade-non-triggered
+```
+
+If you prefer a file-based Apprise config, mount it into the container and set
+`REBALANCE_APPRISE_CONFIG` to the mounted path.
+
+The published image is built with `uv` on top of Astral's official uv base
+images and installs the runtime environment from `uv.lock` using
+`uv sync --locked --no-dev --no-editable`, so deployments stay pinned to the
+same fully resolved dependency set that CI validates.
+
+For local rootless Podman builds, the host must also provide `newuidmap` and
+`newgidmap` plus valid `/etc/subuid` and `/etc/subgid` entries for your user.
+If Podman fails with `exec: "newuidmap": executable file not found in $PATH`,
+install the host package that provides those binaries, for example
+`sudo apt-get install uidmap` on Debian or Ubuntu.
+
+For a preflighted local build, run:
+
+```bash
+just container-build
+```
+
+## Scheduling the monitor
+
+`rebalance-monitor` is a single-pass command: it fetches prices, evaluates the
+band and leverage rules, sends any Apprise notifications, and exits. Run the
+container every 15 minutes from cron, a systemd timer, Podman Quadlet, or a
+Kubernetes CronJob. Do not keep the container running continuously unless you
+intentionally wrap it in your own loop.
 
 ## Notifications
 

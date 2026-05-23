@@ -49,7 +49,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
       - name: Run all tests with coverage
         run: |
@@ -60,7 +60,7 @@ jobs:
             --cov-branch
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         if: always()
         with:
           files: ./coverage.xml
