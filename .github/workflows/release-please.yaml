@@ -16,7 +16,7 @@ permissions: {}
 jobs:
   release-please:
     name: Create Release PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Grant minimal permissions required for release-please to create releases and PRs
     permissions:
       contents: write # Required to create releases and push commits

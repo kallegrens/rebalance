@@ -15,7 +15,7 @@ permissions: {}
 jobs:
   publish:
     name: Publish to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Grant minimal permissions required for PyPI trusted publishing
     permissions:
       actions: read # Required for SBOM action to find workflow artifacts when attaching release assets

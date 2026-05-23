@@ -14,7 +14,7 @@ permissions: {}
 jobs:
   pre-commit:
     name: Pre-commit Hooks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -52,7 +52,7 @@ jobs:
 
   actionlint:
     name: GitHub Actions Syntax
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read # Required to checkout repository code
       pull-requests: write # Required for reviewdog to post PR review comments
@@ -69,7 +69,7 @@ jobs:
 
   zizmor:
     name: Security Audit with zizmor
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       security-events: write # Required to upload SARIF file to GitHub Security
       contents: read # Required to checkout repository code
