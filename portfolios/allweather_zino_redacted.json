@@ -1,0 +1,252 @@
+{
+    "name": "allweather_zino_redacted",
+    "selling_allowed": false,
+    "common_currency": "SEK",
+    "conversion_cost": 0.25,
+    "cash": [
+        {
+            "amount": 100000,
+            "currency": "SEK"
+        }
+    ],
+    "assets": [
+        {
+            "ticker": "AVWS.DE",
+            "quantity": 0,
+            "target_allocation": 2.8,
+            "name": "Avantis Global Small Cap Value UCITS ETF USD Acc",
+            "isin": "IE0003R87OG3",
+            "volatility": 22.5
+        },
+        {
+            "ticker": "0P00018JII.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 1.9,
+            "name": "Aktiespararna Direktavkastning A",
+            "isin": "SE0008321780",
+            "volatility": 17.5
+        },
+        {
+            "ticker": "0P00006P9H.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 1.9,
+            "name": "SEB Swedish Value Fund",
+            "isin": "SE0001838004",
+            "volatility": 15.58
+        },
+        {
+            "ticker": "AVEM.DE",
+            "quantity": 0,
+            "target_allocation": 5.6,
+            "name": "Avantis Emerging Markets Equity UCITS ETF USD Acc",
+            "isin": "IE000K975W13",
+            "volatility": 14.16
+        },
+        {
+            "ticker": "XDEM.DE",
+            "quantity": 0,
+            "target_allocation": 2.8,
+            "name": "Xtrackers MSCI World Momentum UCITS ETF 1C",
+            "isin": "IE00BL25JP72",
+            "volatility": 20.0
+        },
+        {
+            "ticker": "0P0001MKR5.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 1.9,
+            "name": "Aktiespararna Småbolag Edge",
+            "isin": "SE0011415256",
+            "volatility": 25.0
+        },
+        {
+            "ticker": "0P0001IISR.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 1.9,
+            "name": "Kvartil Investmentbolag+ Calculus A",
+            "isin": "SE0013121456",
+            "volatility": 20.0
+        },
+        {
+            "ticker": "VIR10SEK",
+            "quantity": 0,
+            "target_allocation": 1.9,
+            "name": "Virtune Crypto Top 10 Index ETP SEK",
+            "isin": "SE0020052207",
+            "nasdaq_nordic_id": "TX4856348",
+            "nasdaq_nordic_asset_class": "ETN/ETC",
+            "courtage_profile": "nordnet_stockholm",
+            "volatility": 51.6
+        },
+        {
+            "ticker": "0P0001LZFF.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 9.5,
+            "name": "Captor Aster Global Credit A",
+            "isin": "SE0015243878",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "0P0001H70C.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 5.7,
+            "name": "Captor Iris Bond A",
+            "isin": "SE0012204758",
+            "volatility": 10.0
+        },
+        {
+            "ticker": "IS04.DE",
+            "quantity": 0,
+            "target_allocation": 1.3,
+            "name": "iShares $ Treasury Bond 20+yr UCITS ETF USD (Dist)",
+            "isin": "IE00BSKRJZ44",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "IS05.DE",
+            "quantity": 0,
+            "target_allocation": 1.3,
+            "name": "iShares € Govt Bond 20yr Target Duration UCITS ETF EUR (Dist)",
+            "isin": "IE00BSKRJX20",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "SYBL.DE",
+            "quantity": 0,
+            "target_allocation": 1.3,
+            "name": "SPDR Bloomberg 15+ Year Gilt UCITS ETF",
+            "isin": "IE00B6YX5L24",
+            "volatility": 19.54
+        },
+        {
+            "ticker": "EN4C.DE",
+            "quantity": 0,
+            "target_allocation": 7.8,
+            "name": "L&G Multi-Strategy Enhanced Commodities UCITS ETF",
+            "isin": "IE00BFXR6159",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "0P00000NKF.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 5.7,
+            "name": "Swedbank Robur Realränta A",
+            "isin": "SE0000987224",
+            "volatility": 4.66
+        },
+        {
+            "ticker": "0P0000PWOM.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 3.8,
+            "name": "Danske Invest Globala Realräntor SEK h",
+            "isin": "DK0060485605",
+            "volatility": 10.0
+        },
+        {
+            "ticker": "GLDA.DE",
+            "quantity": 0,
+            "target_allocation": 7.8,
+            "name": "Amundi Physical Gold ETC",
+            "isin": "FR0013416716",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "8PSG.DE",
+            "quantity": 0,
+            "target_allocation": 7.8,
+            "name": "Invesco Physical Gold ETC",
+            "isin": "IE00B579F325",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "GZURD.XD",
+            "quantity": 0,
+            "target_allocation": 3.9,
+            "name": "WisdomTree Physical Swiss Gold ETC",
+            "isin": "JE00B588CD74",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "0P0001ULLD.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 3.9,
+            "name": "Mandatum Managed Futures A1 SEK Cap Performance Hedged",
+            "isin": "LU2985209316",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "0P0000KV4C.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 3.9,
+            "name": "Lynx Dynamic",
+            "isin": "SE0002866772",
+            "volatility": 14.4
+        },
+        {
+            "ticker": "BHMGL.XC",
+            "quantity": 0,
+            "target_allocation": 7.8,
+            "name": "BH Macro Ltd",
+            "isin": "GG00BQBFY362",
+            "volatility": 13.58
+        },
+        {
+            "ticker": "UBF6.DE",
+            "quantity": 0,
+            "target_allocation": 7.8,
+            "name": "UBS CMCI Commodity Carry ex-Agriculture SF UCITS ETF USD acc",
+            "isin": "IE00BN940Z87",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "FYEQ.DE",
+            "quantity": 0,
+            "target_allocation": 0.0,
+            "name": "Fidelity Emerging Markets Quality Income UCITS ETF USD Inc",
+            "isin": "IE00BYSX4739",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "WTED.DE",
+            "quantity": 0,
+            "target_allocation": 0.0,
+            "name": "WisdomTree Emerging Markets SmallCap Dividend UCITS ETF",
+            "isin": "IE00BQZJBM26",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "0P0001N9OB.ST",
+            "fractional": true,
+            "quantity": 0,
+            "target_allocation": 0.0,
+            "name": "PLUS Fastigheter Sverige Index",
+            "isin": "SE0016798805",
+            "volatility": 25.0
+        },
+        {
+            "ticker": "UIMB.DE",
+            "quantity": 0,
+            "target_allocation": 0.0,
+            "name": "UBS BBG TIPS 10+ UCITS ETF USD dis",
+            "isin": "LU1459802754",
+            "volatility": 15.0
+        },
+        {
+            "ticker": "FRC4.DE",
+            "quantity": 0,
+            "target_allocation": 0.0,
+            "name": "UBS BBG Euro Inflation Linked 10+ UCITS ETF EUR dis",
+            "isin": "LU1645381689",
+            "volatility": 15.0
+        }
+    ]
+}

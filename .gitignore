@@ -49,11 +49,12 @@ htmlcov
 *.pot
 
 # Portfolio data (contains personal financial positions)
-portfolios/
-# Portfolio files with real holdings (use *_redacted.json for CI)
+portfolios/*
+*.json
+
+# Portfolio files safe to commit (used by tests/CI)
 !portfolios/allweather_zino_redacted.json
 !portfolios/example.json
-*.json
 
 # Downloaded market data
 *.csv
