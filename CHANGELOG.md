@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/kallegrens/rebalance/compare/v0.4.0...v0.5.0) (2026-05-23)
+
+
+### Features
+
+* add band-aware monitoring and constrained rebalance planning ([9c432d9](https://github.com/kallegrens/rebalance/commit/9c432d9d3a744a57a34013355baed68533a48da3))
+* add nordnet_stockholm courtage profile and asymmetric bands ([4096471](https://github.com/kallegrens/rebalance/commit/409647186cd18b4985a75b0e2831af003e1ad3fd))
+* add support for leverage ([5ba6707](https://github.com/kallegrens/rebalance/commit/5ba6707bc0eab10845baf870059683baece86046))
+* add support for notifications with apprise ([c1f13f7](https://github.com/kallegrens/rebalance/commit/c1f13f7a81d48e51a632257543c2803789c03386))
+* **ci:** add container image build ([451c1b0](https://github.com/kallegrens/rebalance/commit/451c1b032e700c2444ebb3000c1a7d131f96c9b2))
+* model Nordnet 0.25% FX conversion cost for non-SEK assets ([9441002](https://github.com/kallegrens/rebalance/commit/944100238197cf506ef55884df86fe270a08489e))
+* replace SLSQP solver with MILP (cvxpy+HiGHS) and add fractional asset support ([adf2d1e](https://github.com/kallegrens/rebalance/commit/adf2d1e2222de00b5f47cb0775010331f17c2ab5))
+
+
+### Bug Fixes
+
+* **deps:** update python dependencies ([4cdc698](https://github.com/kallegrens/rebalance/commit/4cdc6986ab0a2c6e5f6674418bca5c891b0f83f4))
+* **deps:** update python dependencies ([4f82e12](https://github.com/kallegrens/rebalance/commit/4f82e1278395eb2e234ab6c327add4eb79792b09))
+* **release-please:** also bump the podman command in README ([91bda58](https://github.com/kallegrens/rebalance/commit/91bda583cd3e9aa316bcb3a70db2d3ff61a0135d))
+* wake release-please to bump its PR ([76eaf3c](https://github.com/kallegrens/rebalance/commit/76eaf3cf6ff39738d9b18838364662d79ff6f0d4))
+
 ## [0.4.0](https://github.com/kallegrens/rebalance/compare/v0.3.1...v0.4.0) (2026-05-09)
 
 

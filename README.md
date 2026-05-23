@@ -20,7 +20,7 @@ Release images are also published to GHCR:
 
 <!-- x-release-please-start-version -->
 ```bash
-podman pull ghcr.io/kallegrens/rebalance:v0.4.0
+podman pull ghcr.io/kallegrens/rebalance:v0.5.0
 ```
 <!-- x-release-please-end -->
 
