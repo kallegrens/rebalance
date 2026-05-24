@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/kallegrens/rebalance/compare/v0.5.0...v0.5.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* **logging:** improve apprise message and fixed logging warnings ([7de0c7a](https://github.com/kallegrens/rebalance/commit/7de0c7a71f32e23e5e78ee0b30f1261a9b37fa4e))
+
 ## [0.5.0](https://github.com/kallegrens/rebalance/compare/v0.4.0...v0.5.0) (2026-05-23)
 
 
