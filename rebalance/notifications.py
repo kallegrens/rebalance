@@ -489,7 +489,11 @@ def _send_notification(event: str, title: str, body: str) -> None:
         logger.debug("Dropped {} notification: {}", event, title)
         return
 
-    notify_kwargs: dict[str, Any] = {"title": title, "body": body}
+    notify_kwargs: dict[str, Any] = {
+        "title": title,
+        "body": body,
+        "body_format": "text",
+    }
     tag = _resolve_tag(event, source)
     if tag is not None:
         notify_kwargs["tag"] = tag

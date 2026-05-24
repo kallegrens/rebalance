@@ -49,6 +49,7 @@ def test_notify_failure_uses_inline_apprise_urls(monkeypatch):
     ]
     notify_kwargs = notifier.notify.call_args.kwargs
     assert notify_kwargs["title"] == "rebalance-monitor failed (RuntimeError)"
+    assert notify_kwargs["body_format"] == "text"
     assert "Portfolio: portfolios/p.json" in notify_kwargs["body"]
     assert "Error: boom" in notify_kwargs["body"]
     assert "tag" not in notify_kwargs
@@ -85,6 +86,7 @@ def test_notify_trigger_uses_default_tag_for_discovered_config(monkeypatch, tmp_
     config.add.assert_called_once_with(str(config_path))
     notify_kwargs = notifier.notify.call_args.kwargs
     assert notify_kwargs["tag"] == "rebalance"
+    assert notify_kwargs["body_format"] == "text"
     assert notify_kwargs["title"] == "Rebalance trigger: 1 asset outside bands | SELL 1"
     assert "Portfolio: allweather_zino" in notify_kwargs["body"]
     assert "Source: portfolios/p.json" in notify_kwargs["body"]
@@ -110,6 +112,7 @@ def test_notify_failure_uses_event_specific_tag_override(monkeypatch, tmp_path):
 
     config.add.assert_called_once_with(str(config_path))
     assert notifier.notify.call_args.kwargs["tag"] == "rebalance-failure"
+    assert notifier.notify.call_args.kwargs["body_format"] == "text"
 
 
 def test_notify_failure_swallows_delivery_errors(monkeypatch):
