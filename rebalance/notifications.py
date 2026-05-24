@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,7 +45,8 @@ _ENV_NOTIFY_FAILURE_TAG = "REBALANCE_NOTIFY_FAILURE_TAG"
 _ENV_NOTIFY_TRIGGER_TAG = "REBALANCE_NOTIFY_TRIGGER_TAG"
 _DEFAULT_DISCOVERY_TAG = "rebalance"
 _MAX_ERROR_SUMMARY_LENGTH = 400
-_MAX_TRIGGER_LINES = 8
+_MAX_TRIGGER_LINES_PER_SECTION = 8
+_MAX_NOTIFICATION_TRADES = 3
 
 
 @dataclass(frozen=True)
@@ -250,30 +251,233 @@ def _format_pct(value: Any) -> str:
         return "n/a"
 
 
-def _format_trigger_line(trigger: Any) -> str:
+def _format_units(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+
+    if abs(numeric - round(numeric)) <= 1e-9:
+        return f"{abs(int(round(numeric))):,d}"
+    return f"{abs(numeric):,.2f}"
+
+
+def _trigger_action(trigger: Any) -> str:
+    target_pct = float(getattr(trigger, "target_pct", 0.0) or 0.0)
+    direction = getattr(trigger, "direction", None)
+    if target_pct <= 1e-9 and direction == "above":
+        return "EXIT"
+    if direction == "below":
+        return "BUY"
+    return "SELL"
+
+
+def _trigger_action_counts(triggers: Sequence[Any]) -> tuple[int, int, int]:
+    buy_count = sum(1 for trigger in triggers if _trigger_action(trigger) == "BUY")
+    sell_count = sum(1 for trigger in triggers if _trigger_action(trigger) == "SELL")
+    exit_count = sum(1 for trigger in triggers if _trigger_action(trigger) == "EXIT")
+    return buy_count, sell_count, exit_count
+
+
+def _trigger_sort_key(trigger: Any) -> tuple[float, str]:
+    action = _trigger_action(trigger)
+    current_pct = float(getattr(trigger, "current_pct", 0.0) or 0.0)
+    target_pct = float(getattr(trigger, "target_pct", 0.0) or 0.0)
+    if action == "BUY":
+        severity = target_pct - current_pct
+    elif action == "EXIT":
+        severity = current_pct
+    else:
+        severity = current_pct - target_pct
+    ticker = str(
+        getattr(trigger, "ticker", None) or getattr(trigger, "name", "unknown")
+    )
+    return (-severity, ticker)
+
+
+def _format_trigger_asset(trigger: Any) -> str:
     ticker = getattr(trigger, "ticker", None) or getattr(trigger, "name", "unknown")
-    direction = getattr(trigger, "direction", None) or "outside"
+    name = (getattr(trigger, "name", None) or "").strip()
+    if name and name != ticker:
+        return f"{ticker} ({name})"
+    return str(ticker)
+
+
+def _format_trigger_line(trigger: Any) -> str:
+    action = _trigger_action(trigger)
+    asset = _format_trigger_asset(trigger)
+    current_pct = _format_pct(getattr(trigger, "current_pct", None))
+    target_pct = _format_pct(getattr(trigger, "target_pct", None))
+    lower_band = _format_pct(getattr(trigger, "lower_band", None))
+    upper_band = _format_pct(getattr(trigger, "upper_band", None))
+
+    if action == "BUY":
+        return (
+            f"BUY: {asset} | current {current_pct} | target {target_pct} | "
+            f"below {lower_band} floor"
+        )
+    if action == "EXIT":
+        return (
+            f"EXIT: {asset} | current {current_pct} | target {target_pct} | "
+            "wind down target-zero position"
+        )
     return (
-        f"{ticker}: {_format_pct(getattr(trigger, 'current_pct', None))} vs "
-        f"target {_format_pct(getattr(trigger, 'target_pct', None))} "
-        f"({direction}; band {_format_pct(getattr(trigger, 'lower_band', None))} - "
-        f"{_format_pct(getattr(trigger, 'upper_band', None))})"
+        f"SELL: {asset} | current {current_pct} | target {target_pct} | "
+        f"above {upper_band} ceiling"
     )
 
 
-def _format_trigger_message(triggers: Sequence[Any]) -> tuple[str, str]:
+def _append_trigger_section(
+    lines: list[str], heading: str, triggers: Sequence[Any]
+) -> None:
+    if not triggers:
+        return
+
+    lines.append(f"{heading}:")
+    display_triggers = list(triggers[:_MAX_TRIGGER_LINES_PER_SECTION])
+    lines.extend(f"- {_format_trigger_line(trigger)}" for trigger in display_triggers)
+
+    extra_count = len(triggers) - len(display_triggers)
+    if extra_count > 0:
+        lines.append(f"- +{extra_count} more {heading.lower()}")
+
+
+def _trade_preview_action(trade: Mapping[str, Any]) -> str:
+    delta_units = float(trade.get("delta_units", 0.0) or 0.0)
+    if delta_units > 0.0:
+        return "BUY"
+    if delta_units < 0.0:
+        return "SELL"
+    return "HOLD"
+
+
+def _top_trade_previews(
+    trade_previews: Sequence[Mapping[str, Any]] | None,
+) -> list[Mapping[str, Any]]:
+    if not trade_previews:
+        return []
+
+    actionable = [
+        trade
+        for trade in trade_previews
+        if abs(float(trade.get("delta_units", 0.0) or 0.0)) > 1e-9
+    ]
+    actionable.sort(
+        key=lambda trade: abs(float(trade.get("amount_common_currency", 0.0) or 0.0)),
+        reverse=True,
+    )
+    return actionable[:_MAX_NOTIFICATION_TRADES]
+
+
+def _format_trade_preview_asset(trade: Mapping[str, Any]) -> str:
+    ticker = str(trade.get("ticker") or trade.get("name") or "unknown")
+    name = str(trade.get("name") or "").strip()
+    if name and name != ticker:
+        return f"{ticker} ({name})"
+    return ticker
+
+
+def _format_trade_preview_line(trade: Mapping[str, Any]) -> str:
+    action = _trade_preview_action(trade)
+    asset = _format_trade_preview_asset(trade)
+    units = _format_units(trade.get("delta_units"))
+    amount = abs(float(trade.get("amount_common_currency", 0.0) or 0.0))
+    amount_currency = str(trade.get("amount_currency") or "")
+    pending_suffix = " | pending" if trade.get("pending") else ""
+    return (
+        f"{action}: {asset} | {units} units | "
+        f"approx {amount:,.0f} {amount_currency}{pending_suffix}"
+    )
+
+
+def _format_leverage_summary(leverage_report: Mapping[str, Any] | None) -> str | None:
+    if not leverage_report or not leverage_report.get("configured"):
+        return None
+
+    action = str(leverage_report.get("action", "hold") or "hold")
+    display_action = {
+        "decrease_to_bracket": "DECREASE",
+        "opportunistic_zone": "HOLD",
+    }.get(action, action.upper())
+    current_leverage = leverage_report.get("current_leverage")
+    target_leverage = leverage_report.get("target_leverage")
+    recommended_debt_delta = float(
+        leverage_report.get("recommended_debt_delta", 0.0) or 0.0
+    )
+    currency = str(leverage_report.get("common_currency") or "")
+
+    parts = [f"Leverage: {display_action}"]
+    if current_leverage is not None and target_leverage is not None:
+        parts.append(
+            f"current {float(current_leverage):.2f}x vs target {float(target_leverage):.2f}x"
+        )
+    if currency:
+        parts.append(
+            f"recommended debt delta {recommended_debt_delta:+,.0f} {currency}"
+        )
+    return " | ".join(parts)
+
+
+def _format_trigger_message(
+    triggers: Sequence[Any],
+    *,
+    context: str = "",
+    portfolio_name: str | None = None,
+    trade_previews: Sequence[Mapping[str, Any]] | None = None,
+    leverage_report: Mapping[str, Any] | None = None,
+) -> tuple[str, str]:
     count = len(triggers)
     noun = "asset" if count == 1 else "assets"
     command = _current_command()
+    buy_triggers = sorted(
+        (trigger for trigger in triggers if _trigger_action(trigger) == "BUY"),
+        key=_trigger_sort_key,
+    )
+    sell_triggers = sorted(
+        (trigger for trigger in triggers if _trigger_action(trigger) == "SELL"),
+        key=_trigger_sort_key,
+    )
+    exit_triggers = sorted(
+        (trigger for trigger in triggers if _trigger_action(trigger) == "EXIT"),
+        key=_trigger_sort_key,
+    )
+    buy_count, sell_count, exit_count = _trigger_action_counts(triggers)
+
+    summary_parts = []
+    if buy_count:
+        summary_parts.append(f"BUY {buy_count}")
+    if sell_count:
+        summary_parts.append(f"SELL {sell_count}")
+    if exit_count:
+        summary_parts.append(f"EXIT {exit_count}")
+
+    summary = " | ".join(summary_parts)
     title = f"Rebalance trigger: {count} {noun} outside bands"
-    lines = [f"Command: {command}"]
+    if summary:
+        title = f"{title} | {summary}"
 
-    display_triggers = triggers[:_MAX_TRIGGER_LINES]
-    lines.extend(_format_trigger_line(trigger) for trigger in display_triggers)
+    lines: list[str] = []
+    if portfolio_name:
+        lines.append(f"Portfolio: {portfolio_name}")
+    lines.append(
+        f"Summary: {count} {noun} outside bands" + (f" | {summary}" if summary else "")
+    )
+    leverage_summary = _format_leverage_summary(leverage_report)
+    if leverage_summary is not None:
+        lines.append(leverage_summary)
 
-    extra_count = count - len(display_triggers)
-    if extra_count > 0:
-        lines.append(f"+{extra_count} more triggered {noun}")
+    top_trades = _top_trade_previews(trade_previews)
+    if top_trades:
+        lines.append("Top planned trades:")
+        lines.extend(f"- {_format_trade_preview_line(trade)}" for trade in top_trades)
+
+    if context:
+        lines.append(f"Source: {context}")
+    lines.append(f"Command: {command}")
+
+    _append_trigger_section(lines, "Buy candidates", buy_triggers)
+    _append_trigger_section(lines, "Sell candidates", sell_triggers)
+    _append_trigger_section(lines, "Exit candidates", exit_triggers)
 
     return title, "\n".join(lines)
 
@@ -311,11 +515,24 @@ def notify_failure(exc: BaseException, context: str = "") -> None:
     _send_notification("failure", title, body)
 
 
-def notify_rebalance_trigger(triggers: list) -> None:
+def notify_rebalance_trigger(
+    triggers: list,
+    *,
+    context: str = "",
+    portfolio_name: str | None = None,
+    trade_previews: Sequence[Mapping[str, Any]] | None = None,
+    leverage_report: Mapping[str, Any] | None = None,
+) -> None:
     """Send a notification when one or more assets drift outside their bands."""
     if not triggers:
         logger.debug("notify_rebalance_trigger called with no triggers.")
         return
 
-    title, body = _format_trigger_message(triggers)
+    title, body = _format_trigger_message(
+        triggers,
+        context=context,
+        portfolio_name=portfolio_name,
+        trade_previews=trade_previews,
+        leverage_report=leverage_report,
+    )
     _send_notification("trigger", title, body)

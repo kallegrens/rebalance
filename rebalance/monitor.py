@@ -27,6 +27,7 @@ from rebalance.band_rendering import (
     render_band_rebalance_table,
 )
 from rebalance.band_targets import build_band_rebalance_plan, cash_inclusive_allocation
+from rebalance.courtage import amount_in_common_currency
 from rebalance.leverage import (
     build_band_status_report,
     build_financing_adjustment,
@@ -53,6 +54,54 @@ def _write_json_report(path: str, report: dict) -> None:
     with open(path, "w", encoding="utf-8") as json_file:
         json.dump(report, json_file, ensure_ascii=False, indent=2)
         json_file.write("\n")
+
+
+def _build_notification_trade_previews(
+    portfolio,
+    new_units: dict[str, int | float],
+    prices: dict[str, list],
+    *,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    common_currency = portfolio.common_currency
+    assets = getattr(portfolio, "assets", {})
+    previews: list[dict[str, object]] = []
+
+    for ticker, delta_units in new_units.items():
+        delta_value = float(delta_units)
+        if abs(delta_value) <= 1e-9:
+            continue
+
+        price, price_currency = prices[ticker]
+        amount = float(price) * delta_value
+        amount_currency = common_currency
+        try:
+            amount_common_currency = amount_in_common_currency(
+                amount,
+                price_currency,
+                common_currency,
+            )
+        except Exception:
+            amount_common_currency = amount
+            amount_currency = price_currency
+
+        asset = assets.get(ticker)
+        previews.append(
+            {
+                "ticker": ticker,
+                "name": getattr(asset, "name", None),
+                "delta_units": delta_units,
+                "amount_common_currency": amount_common_currency,
+                "amount_currency": amount_currency,
+                "pending": bool(getattr(asset, "pending", False)),
+            }
+        )
+
+    previews.sort(
+        key=lambda trade: abs(float(trade["amount_common_currency"])),
+        reverse=True,
+    )
+    return previews[:limit]
 
 
 def _log_leverage_summary(report: dict) -> None:
@@ -326,7 +375,6 @@ def main() -> None:
                 "(notification channel not yet configured)",
                 len(triggers),
             )
-            notify_rebalance_trigger(triggers)
 
         leverage_report = withdrawal_result.leverage_report or build_leverage_report(
             withdrawal_result.planning_portfolio,
@@ -334,6 +382,26 @@ def main() -> None:
             basis="post_withdrawal",
             margin_debt_delta=withdrawal_result.margin_debt_delta,
         )
+        trade_previews: list[dict[str, object]] = []
+        if withdrawal_result.trade_plan_built:
+            new_units = withdrawal_result.new_units
+            prices = withdrawal_result.prices
+            if new_units is not None and prices is not None:
+                trade_previews = _build_notification_trade_previews(
+                    withdrawal_result.planning_portfolio,
+                    new_units,
+                    prices,
+                )
+
+        if triggers:
+            notify_rebalance_trigger(
+                triggers,
+                context=args.portfolio,
+                portfolio_name=getattr(config, "name", None),
+                trade_previews=trade_previews,
+                leverage_report=leverage_report,
+            )
+
         _log_leverage_summary(leverage_report)
 
         if withdrawal_result.trade_plan_built:
@@ -418,7 +486,6 @@ def main() -> None:
             "(notification channel not yet configured)",
             len(triggers),
         )
-        notify_rebalance_trigger(triggers)
 
         logger.info("Computing band-aware rebalancing trades...")
         try:
@@ -449,6 +516,18 @@ def main() -> None:
                 basis="post_rebalance",
                 margin_debt_delta=financing_adjustment["margin_debt_delta"],
             )
+            trade_previews = _build_notification_trade_previews(
+                planning_portfolio,
+                new_units,
+                prices,
+            )
+            notify_rebalance_trigger(
+                triggers,
+                context=args.portfolio,
+                portfolio_name=getattr(config, "name", None),
+                trade_previews=trade_previews,
+                leverage_report=current_leverage_report,
+            )
             _log_leverage_summary(leverage_report)
 
             if args.json_path is not None and plan is not None:
@@ -474,6 +553,12 @@ def main() -> None:
                 _write_json_report(args.json_path, report)
         except Exception as e:
             logger.error("Band rebalancing computation failed: {}", e)
+            notify_rebalance_trigger(
+                triggers,
+                context=args.portfolio,
+                portfolio_name=getattr(config, "name", None),
+                leverage_report=current_leverage_report,
+            )
     else:
         logger.info(
             "All {} checked asset(s) are within their rebalancing bands.",

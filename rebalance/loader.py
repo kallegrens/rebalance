@@ -1,7 +1,10 @@
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import requests
+import yfinance as yf
 from loguru import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -9,6 +12,20 @@ from urllib3.util.retry import Retry
 from rebalance import Portfolio
 from rebalance.asset import Asset
 from rebalance.schemas import PortfolioConfig
+
+
+def _configure_yfinance_cache() -> None:
+    """Point yfinance at a pre-created cache directory before threaded fetches."""
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    cache_dir = cache_root / "rebalance" / "py-yfinance"
+
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        yf.set_tz_cache_location(str(cache_dir))
+    except OSError as exc:
+        logger.debug(
+            "Unable to prepare yfinance timezone cache '{}': {}", cache_dir, exc
+        )
 
 
 def _make_session() -> requests.Session:
@@ -64,6 +81,8 @@ def load_portfolio(json_path: str) -> tuple:
     p.common_currency = config.common_currency
     p.conversion_cost = config.conversion_cost / 100.0
     p.courtage_profile = config.courtage_profile
+
+    _configure_yfinance_cache()
 
     max_workers = min(len(config.assets), 8)
     logger.info("Fetching prices for {} assets...", len(config.assets))

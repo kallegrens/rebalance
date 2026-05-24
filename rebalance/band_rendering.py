@@ -361,6 +361,59 @@ def _format_amount(amount: float, decimals: int = 0) -> str:
     return f"[dim]{amount_fmt}[/dim]"
 
 
+def _format_plain_units(quantity: int | float) -> str:
+    if isinstance(quantity, int):
+        return f"{quantity:,d}"
+    return f"{quantity:,.2f}"
+
+
+def _supports_rich_table(console: Console) -> bool:
+    return bool(
+        getattr(console, "is_terminal", False) or getattr(console, "record", False)
+    )
+
+
+def _render_band_rebalance_text(
+    rows: list[_BandRebalanceRow],
+    summaries: _ColumnSummaries,
+    withdrawal_rows: list[dict],
+    financing_rows: list[dict],
+    common_currency: str,
+) -> None:
+    _console.print("\nBand rebalance trade summary:")
+
+    for row in rows:
+        asset_label = row["ticker"]
+        if row["name"]:
+            asset_label = f"{row['ticker']} ({row['name']})"
+        marker = f"{row['band_marker']} " if row["band_marker"] else ""
+        _console.print(
+            "  "
+            f"{marker}{row['trade']:>7} {asset_label}: "
+            f"d_units {_format_plain_units(row['delta_units'])} @ {row['price']:,.2f} {row['price_currency']} | "
+            f"amount {row['amount_common_currency']:,.0f} {common_currency} | "
+            f"old {row['old_pct']:.2f}% -> cash {row['cash_inclusive_pct']:.2f}% -> new {row['new_pct']:.2f}% | "
+            f"eff target {row['effective_target_pct']:.2f}%"
+        )
+
+    for row in withdrawal_rows:
+        _console.print(
+            f"  {row['trade']:>7} {row['label']}: {row['amount_common_currency']:,.0f} {common_currency}"
+        )
+
+    for row in financing_rows:
+        _console.print(
+            f"  {row['trade']:>7} {row['label']}: {row['amount_common_currency']:,.0f} {common_currency}"
+        )
+
+    _console.print(
+        "Totals: "
+        f"amount {summaries['common_amount_total']:,.0f} {common_currency} | "
+        f"courtage fee {summaries['courtage_fee_total']:,.0f} {common_currency} | "
+        f"FX fee {summaries['fx_fee_total']:,.0f} {common_currency}"
+    )
+
+
 def _trade_label(quantity: int | float, *, pending: bool = False) -> str:
     if pending:
         return "PENDING"
@@ -808,6 +861,21 @@ def render_band_rebalance_table(
         target_allocation,
         plan,
     )
+    common_currency = balanced_portfolio.common_currency
+    withdrawal_rows = _build_withdrawal_rows(plan, common_currency)
+    financing_rows = _build_financing_rows(plan, common_currency)
+
+    if not _supports_rich_table(_console):
+        _render_band_rebalance_text(
+            rows,
+            summaries,
+            withdrawal_rows,
+            financing_rows,
+            common_currency,
+        )
+        _render_exchange_history(exchange_history)
+        _render_remaining_cash(balanced_portfolio)
+        return
 
     table = Table(show_header=True, header_style="bold")
     table.add_column("Band", justify="center")
@@ -864,7 +932,7 @@ def render_band_rebalance_table(
             style=row["row_style"],
         )
 
-    for row in _build_withdrawal_rows(plan, balanced_portfolio.common_currency):
+    for row in withdrawal_rows:
         amount_cell = _format_amount(row["amount_common_currency"])
         table.add_row(
             "",
@@ -887,7 +955,7 @@ def render_band_rebalance_table(
             Text(row["reason"], style="dim"),
         )
 
-    for row in _build_financing_rows(plan, balanced_portfolio.common_currency):
+    for row in financing_rows:
         amount_cell = _format_amount(row["amount_common_currency"])
         table.add_row(
             "",

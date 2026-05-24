@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -430,6 +431,21 @@ class TestLoadPortfolio:
         path.write_text(json.dumps(bad))
         with pytest.raises(ValidationError):
             load_portfolio(str(path))
+
+    def test_configures_dedicated_yfinance_cache_before_loading(
+        self, mock_price_fetchers, tmp_path, monkeypatch
+    ):
+        path = tmp_path / "p.json"
+        path.write_text(json.dumps(_valid_portfolio()))
+        cache_root = tmp_path / "cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
+
+        with patch("rebalance.loader.yf.set_tz_cache_location") as set_cache_location:
+            load_portfolio(str(path))
+
+        expected = cache_root / "rebalance" / "py-yfinance"
+        assert expected.is_dir()
+        set_cache_location.assert_called_once_with(str(expected))
 
 
 class TestConversionCostSchema:

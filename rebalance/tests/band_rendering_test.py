@@ -1,3 +1,4 @@
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -929,3 +930,42 @@ def test_render_band_rebalance_table_shows_withdrawal_row():
     assert "Withdrawal" in output
     assert "WITHDRAW" in output
     assert "300,000" in output
+
+
+def test_render_band_rebalance_table_falls_back_to_plain_text_without_terminal():
+    portfolio = SimpleNamespace(
+        common_currency="SEK",
+        conversion_cost=0.0,
+        assets={"AAA": SimpleNamespace(name="Asset A")},
+        cash={"SEK": SimpleNamespace(amount=12.5, currency="SEK")},
+        _conversion_cost=0.0,
+        _common_currency="SEK",
+    )
+    plan = SimpleNamespace(
+        locked_tickers=set(),
+        status_by_ticker={"AAA": _status(direction="below", current_pct=0.0)},
+        assets_only_allocation={"AAA": 0.0},
+        cash_inclusive_allocation={"AAA": 0.0},
+        effective_targets={"AAA": 10.0},
+    )
+    stream = StringIO()
+    console = Console(file=stream, force_terminal=False, color_system=None, width=260)
+
+    with patch("rebalance.band_rendering._console", console):
+        render_band_rebalance_table(
+            portfolio,
+            new_units={"AAA": 10},
+            prices={"AAA": [12.0, "SEK"]},
+            cost={"AAA": 120.0},
+            exchange_history=[],
+            new_allocation={"AAA": 9.8},
+            target_allocation={"AAA": 10.0},
+            plan=plan,
+        )
+
+    output = stream.getvalue()
+
+    assert "Band rebalance trade summary:" in output
+    assert "BUY AAA (Asset A)" in output
+    assert "Remaining cash:" in output
+    assert "┏" not in output
