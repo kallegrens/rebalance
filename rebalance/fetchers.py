@@ -15,11 +15,43 @@ from tenacity import (
 
 from .money import Price
 
+_YFINANCE_SUBUNIT_CURRENCIES: dict[str, tuple[str, float]] = {
+    "GBp": ("GBP", 0.01),
+}
+
 
 def _callable_name(fn: object | None) -> str:
     if fn is None:
         return "?"
     return getattr(fn, "__name__", type(fn).__name__)
+
+
+def _normalize_yfinance_quote(price: float, currency: str) -> tuple[float, str]:
+    normalized = _YFINANCE_SUBUNIT_CURRENCIES.get(currency)
+    if normalized is None:
+        return price, currency
+    target_currency, scale = normalized
+    return price * scale, target_currency
+
+
+def _select_yfinance_price(quote: yf.Ticker, ticker: str) -> tuple[float, str]:
+    fast_info = quote.fast_info
+    last_price = fast_info["lastPrice"]
+    currency = fast_info["currency"]
+
+    metadata = quote.history_metadata or {}
+    regular_market_price = metadata.get("regularMarketPrice")
+    if regular_market_price is not None:
+        if regular_market_price != last_price:
+            logger.debug(
+                "Using Yahoo regularMarketPrice for {}: {} instead of fast_info lastPrice {}",
+                ticker,
+                regular_market_price,
+                last_price,
+            )
+        return regular_market_price, metadata.get("currency", currency)
+
+    return last_price, currency
 
 
 def fetch_yfinance_price(ticker: str) -> Price:
@@ -34,8 +66,10 @@ def fetch_yfinance_price(ticker: str) -> Price:
     Returns:
         Price: Last traded price with its native currency.
     """
-    info = yf.Ticker(ticker).fast_info
-    return Price(info["lastPrice"], info["currency"])
+    quote = yf.Ticker(ticker)
+    price, currency = _select_yfinance_price(quote, ticker)
+    price, currency = _normalize_yfinance_quote(price, currency)
+    return Price(price, currency)
 
 
 @retry(
