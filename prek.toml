@@ -31,7 +31,7 @@ id = "mixed-line-ending"
 [[repos]]
 repo = "https://github.com/astral-sh/uv-pre-commit"
 # renovate: datasource=github-tags depName=astral-sh/uv-pre-commit
-rev = "0.11.16"
+rev = "0.11.26"
 
 [[repos.hooks]]
 id = "uv-lock"
