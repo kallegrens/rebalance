@@ -86,3 +86,12 @@ language = "system"
 entry = "uv run ty check"
 files = "\\.py$"
 pass_filenames = false
+
+[[repos.hooks]]
+id = "pytest"
+name = "pytest test suite"
+language = "system"
+entry = "uv run pytest rebalance/tests/ -v"
+files = "^(rebalance/|pyproject.toml|uv.lock)"
+pass_filenames = false
+always_run = true

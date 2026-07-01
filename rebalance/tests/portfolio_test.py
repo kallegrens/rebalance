@@ -13,6 +13,14 @@ from rebalance.money import Price
 from rebalance.rebalancing_helper import SUPPORTED_OBJECTIVES, rebalance_optimizer
 
 
+def _live_yfinance_price(ticker: str) -> Price:
+    quote = yf.Ticker(ticker)
+    metadata = quote.history_metadata or {}
+    price = metadata.get("regularMarketPrice", quote.fast_info["lastPrice"])
+    currency = metadata.get("currency", quote.fast_info["currency"])
+    return Price(price, currency=currency)
+
+
 @pytest.mark.integration
 class TestPortfolio(unittest.TestCase):
     def test_cash_interface(self):
@@ -85,11 +93,10 @@ class TestPortfolio(unittest.TestCase):
 
         n = len(tickers)
         for i in range(n):
+            live_price = _live_yfinance_price(tickers[i])
             self.assertEqual(tickers[i], p.assets[tickers[i]].ticker)
             self.assertEqual(quantities[i], p.assets[tickers[i]].quantity)
-            self.assertEqual(
-                yf.Ticker(tickers[i]).fast_info["lastPrice"], p.assets[tickers[i]].price
-            )
+            self.assertEqual(live_price.price, p.assets[tickers[i]].price)
 
     def test_portfolio_value(self):
         """
@@ -133,11 +140,12 @@ class TestPortfolio(unittest.TestCase):
         asset_alloc = p.asset_allocation()
         self.assertAlmostEqual(sum(asset_alloc.values()), 100.0, 7)
 
-        prices = [
-            yf.Ticker(ticker).fast_info["lastPrice"]
-            * Cash(1, yf.Ticker(ticker).fast_info["currency"]).exchange_rate("CAD")
-            for ticker in tickers
-        ]
+        prices = []
+        for ticker in tickers:
+            live_price = _live_yfinance_price(ticker)
+            prices.append(
+                live_price.price * Cash(1, live_price.currency).exchange_rate("CAD")
+            )
         total = np.sum(np.asarray(quantities) * np.asarray(prices))
         n = len(tickers)
         for i in range(n):

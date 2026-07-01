@@ -6,6 +6,14 @@ import yfinance as yf
 from rebalance import Asset, Price
 
 
+def _live_yfinance_price(ticker: str) -> Price:
+    quote = yf.Ticker(ticker)
+    metadata = quote.history_metadata or {}
+    price = metadata.get("regularMarketPrice", quote.fast_info["lastPrice"])
+    currency = metadata.get("currency", quote.fast_info["currency"])
+    return Price(price, currency=currency)
+
+
 @pytest.mark.integration
 class TestAsset(unittest.TestCase):
     def test_interface(self):
@@ -22,13 +30,12 @@ class TestAsset(unittest.TestCase):
         # import sys
         # print(ticker_info["lastPrice"], ticker_info["currency"], file=sys.stderr)
         # print(asset, file=sys.stderr)
+        live_price = _live_yfinance_price(ticker)
         self.assertEqual(asset.quantity, quantity)
-        self.assertEqual(asset.price, yf.Ticker(ticker).fast_info["lastPrice"])
+        self.assertEqual(asset.price, live_price.price)
         self.assertEqual(asset.ticker, ticker)
-        self.assertEqual(asset.currency, yf.Ticker(ticker).fast_info["currency"])
-        self.assertEqual(
-            asset.market_value(), yf.Ticker(ticker).fast_info["lastPrice"] * quantity
-        )
+        self.assertEqual(asset.currency, live_price.currency)
+        self.assertEqual(asset.market_value(), live_price.price * quantity)
 
     def test_interface2(self):
         """
@@ -44,8 +51,7 @@ class TestAsset(unittest.TestCase):
 
         self.assertEqual(asset.quantity, quantity)
 
-        ticker_info = yf.Ticker(ticker).fast_info
-        price = Price(ticker_info["lastPrice"], currency=ticker_info["currency"])
+        price = _live_yfinance_price(ticker)
 
         self.assertEqual(asset.price_in("CAD"), price.price_in("CAD"))
         self.assertEqual(asset.market_value(), price.price * quantity)
@@ -62,8 +68,7 @@ class TestAsset(unittest.TestCase):
         quantity = 10
         asset = Asset(ticker, quantity)
 
-        ticker_info = yf.Ticker(ticker).fast_info
-        price = Price(ticker_info["lastPrice"], currency=ticker_info["currency"])
+        price = _live_yfinance_price(ticker)
 
         to_buy = 4
         self.assertEqual(asset.cost_of(to_buy), price.price * to_buy)
