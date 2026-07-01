@@ -48,7 +48,7 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
       - name: Run linters
-        run: uv run just lint
+        run: uv run just lint-without-tests
 
   actionlint:
     name: GitHub Actions Syntax

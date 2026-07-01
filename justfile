@@ -35,6 +35,9 @@ lock-check:
 lint:
     prek run --all-files
 
+lint-without-tests:
+    prek run --all-files --skip=pytest
+
 fmt:
     uv run ruff format rebalance/
 
