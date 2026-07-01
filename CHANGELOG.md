@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.2](https://github.com/kallegrens/rebalance/compare/v0.5.1...v0.5.2) (2026-07-01)
+
+
+### Bug Fixes
+
+* awaken release-please ([3c74a0b](https://github.com/kallegrens/rebalance/commit/3c74a0b7ed4876251377f0617b544be9a59e4b43))
+* awaken release-please ([279dc3f](https://github.com/kallegrens/rebalance/commit/279dc3f8fc1d858d8e7292c37bcba8dce5316d28))
+* **ci:** remove python 3.11 from test matrix ([034d5e0](https://github.com/kallegrens/rebalance/commit/034d5e0a0fd7ec6be58cdf8337848aed85ef29a0))
+* **deps:** update python dependencies ([fc718f1](https://github.com/kallegrens/rebalance/commit/fc718f1363334d7e42a88da4fbd443448c4a1ec8))
+* **deps:** update python dependencies ([61f85af](https://github.com/kallegrens/rebalance/commit/61f85af2fb0a61df84e068aa28a42f88aafc737d))
+* **notifications:** improve apprise smtp rendering ([56a3d90](https://github.com/kallegrens/rebalance/commit/56a3d907ffd3741ac82abb2c8b8b8fd6e8b1a6cb))
+* treat GBP and GBp differently ([693804a](https://github.com/kallegrens/rebalance/commit/693804af40411538f3710f8d523f697f9e7d36e0))
+
 ## [0.5.1](https://github.com/kallegrens/rebalance/compare/v0.5.0...v0.5.1) (2026-05-24)
 
 
