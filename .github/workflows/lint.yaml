@@ -14,7 +14,7 @@ permissions: {}
 jobs:
   pre-commit:
     name: Pre-commit Hooks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "latest"
           enable-cache: true
@@ -52,7 +52,7 @@ jobs:
 
   actionlint:
     name: GitHub Actions Syntax
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read # Required to checkout repository code
       pull-requests: write # Required for reviewdog to post PR review comments
@@ -69,7 +69,7 @@ jobs:
 
   zizmor:
     name: Security Audit with zizmor
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       security-events: write # Required to upload SARIF file to GitHub Security
       contents: read # Required to checkout repository code
