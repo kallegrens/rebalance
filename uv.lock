@@ -21,7 +21,7 @@ wheels = [
 
 [[package]]
 name = "apprise"
-version = "1.11.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -31,10 +31,11 @@ dependencies = [
     { name = "requests" },
     { name = "requests-oauthlib" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
+    { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a8/f8/83f4e2aaaa0342dc67f783bf84427d9ff5cfa4ecde3a52d9b587740a91ee/apprise-1.11.0.tar.gz", hash = "sha256:3b1e6f5365b302d1fae270c0c8007958e54224b9b7808acec69006ea27f5b8a2", size = 2337248, upload-time = "2026-05-29T17:52:29.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/b0/2f2e9b6d9e52f7530b47ba7a9259ebf2378e3953f445222f54412fb27a68/apprise-2.0.0.tar.gz", hash = "sha256:aeb321737f951860d7cb0a9574159090cbdbcb0f1ba01c6b49c69018380adf8d", size = 3268123, upload-time = "2026-09-26T18:49:55.113Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/79/1483693160917522703708e45b4045946d86be634b8af2c2ac9f361f8fa3/apprise-1.11.0-py3-none-any.whl", hash = "sha256:6abc6d9f8dddedfe14b2918c3553146894ac6e3dad401deaf854b20b4c455d38", size = 1712975, upload-time = "2026-05-29T17:52:26.645Z" },
+    { url = "https://files.pythonhosted.org/packages/df/4e/9d3daa5cd16142b4077fbc3270b146ad965b8f81ffb4b538f781c4a1c858/apprise-2.0.0-py3-none-any.whl", hash = "sha256:945a2500a846b88b3c126a8d6e7c0472f6e3d94d8be52c836d8819f8db50b3d7", size = 2417371, upload-time = "2026-09-26T18:49:52.758Z" },
 ]
 
 [[package]]
@@ -1043,7 +1044,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "apprise", specifier = "==1.11.0" },
+    { name = "apprise", specifier = "==2.0.0" },
     { name = "cvxpy", specifier = "==1.9.2" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "numpy", specifier = "==2.5.0" },
